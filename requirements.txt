@@ -1,0 +1,15 @@
+streamlit
+librosa
+soundfile
+numpy
+scipy
+matplotlib
+pedalboard
+
+# Required: PyTorch for NAM (Neural Amp Modeler) and DDSP (Differentiable DSP) support
+torch>=2.0.0
+torchaudio
+
+# Required: SOTA audio loss functions for advanced tone matching
+auraloss
+

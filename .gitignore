@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# User audio files (personal recordings — do not commit)
+*.wav
+*.mp3
+# Exception: IR files in assets are part of the project
+!assets/impulse_responses/**/*.wav
+
+# Training artifacts
+*.pth
+*.npz
+*.pkl
+
+# Optimization artifacts
+optimized_params.json
+optimized_settings.json
+
+# Debug / output images
+*.png
+
+# Logs
+*.log
+ddsp_training_log.txt
+
+# Result text files
+final_tune_result.txt
+full_rig_result.txt
+
+# Temporary and output directories
+temp/
+output/
+data/
+models/
+
+# OS files
+Thumbs.db
+.DS_Store
+
