@@ -13,6 +13,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <filesystem>
 
 #if NAM_CORE_AVAILABLE
 #include "NAM/dsp.h"   // NeuralAmpModelerCore public header
@@ -77,5 +78,6 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMProcessor)
 };
+
 
 

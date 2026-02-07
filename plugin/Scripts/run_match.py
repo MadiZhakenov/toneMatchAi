@@ -62,14 +62,31 @@ def main():
     discovered_rig = result["discovered_rig"]
     best_params = result.get("best_parameters", {})
 
+    # Convert relative paths to absolute paths
+    def make_absolute(path):
+        if not path:
+            return ""
+        if os.path.isabs(path):
+            return path
+        # Try relative to project root
+        abs_path = os.path.join(PROJECT_ROOT, path)
+        if os.path.exists(abs_path):
+            return os.path.abspath(abs_path)
+        # If not found, return original (might be valid relative path)
+        return os.path.abspath(path) if os.path.exists(path) else path
+
+    fx_nam_path = make_absolute(discovered_rig.get("fx_nam_path", ""))
+    amp_nam_path = make_absolute(discovered_rig.get("amp_nam_path", ""))
+    ir_path = make_absolute(discovered_rig.get("ir_path", ""))
+
     output = {
         "rig": {
             "fx_nam":       discovered_rig.get("fx_nam_name", ""),
             "amp_nam":      discovered_rig.get("amp_nam_name", ""),
             "ir":           discovered_rig.get("ir_name", ""),
-            "fx_nam_path":  discovered_rig.get("fx_nam_path", ""),
-            "amp_nam_path": discovered_rig.get("amp_nam_path", ""),
-            "ir_path":      discovered_rig.get("ir_path", "")
+            "fx_nam_path":  fx_nam_path,
+            "amp_nam_path": amp_nam_path,
+            "ir_path":      ir_path
         },
         "params": {
             "input_gain_db":    float(best_params.get("input_gain_db",

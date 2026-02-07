@@ -37,40 +37,109 @@ void PythonBridge::startMatch(const juce::File& diFile,
 //==============================================================================
 void PythonBridge::run()
 {
-    // Resolve script path — default: Scripts/run_match.py next to the binary
-    juce::File script = scriptPath;
-    if (! script.existsAsFile())
+    DBG("[PythonBridge] Starting run()...");
+    
+    // Get plugin location - VST3 bundle structure
+    auto appFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+    auto appDir = appFile.getParentDirectory();
+    
+    // VST3 structure: ToneMatch AI.vst3/Contents/x86_64-win/ToneMatch AI.vst3
+    // We need to go up to ToneMatch AI.vst3 root, then find Scripts folder nearby
+    auto vst3Root = appDir.getParentDirectory().getParentDirectory();  // Up from x86_64-win/Contents
+    auto pluginFolder = vst3Root.getParentDirectory();  // Folder containing the .vst3
+    
+    DBG("[PythonBridge] App file: " + appFile.getFullPathName());
+    DBG("[PythonBridge] Plugin folder: " + pluginFolder.getFullPathName());
+    
+    // Try to find tone_matcher.exe (standalone) or run_match.py (development)
+    juce::File executable;
+    juce::String executableType;
+    
+    // Paths to try for STANDALONE exe (priority)
+    juce::Array<juce::File> exePaths;
+    exePaths.add(pluginFolder.getChildFile("Scripts").getChildFile("tone_matcher.exe"));
+    exePaths.add(vst3Root.getChildFile("Scripts").getChildFile("tone_matcher.exe"));
+    exePaths.add(appDir.getChildFile("Scripts").getChildFile("tone_matcher.exe"));
+    
+    // Paths to try for DEVELOPMENT script
+    juce::Array<juce::File> scriptPaths;
+    scriptPaths.add(juce::File("E:/Users/Desktop/toneMatchAi/plugin/Scripts/run_match.py"));
+    scriptPaths.add(pluginFolder.getChildFile("Scripts").getChildFile("run_match.py"));
+    scriptPaths.add(vst3Root.getChildFile("Scripts").getChildFile("run_match.py"));
+    if (scriptPath.existsAsFile())
+        scriptPaths.add(scriptPath);
+    
+    // First try standalone exe
+    for (const auto& path : exePaths)
     {
-        script = juce::File::getSpecialLocation(juce::File::currentApplicationFile)
-                     .getParentDirectory()
-                     .getChildFile("Scripts")
-                     .getChildFile("run_match.py");
+        DBG("[PythonBridge] Checking exe: " + path.getFullPathName());
+        if (path.existsAsFile())
+        {
+            executable = path;
+            executableType = "exe";
+            DBG("[PythonBridge] Found standalone exe: " + executable.getFullPathName());
+            break;
+        }
+    }
+    
+    // If no exe, try Python script
+    if (! executable.existsAsFile())
+    {
+        for (const auto& path : scriptPaths)
+        {
+            DBG("[PythonBridge] Checking script: " + path.getFullPathName());
+            if (path.existsAsFile())
+            {
+                executable = path;
+                executableType = "python";
+                DBG("[PythonBridge] Found Python script: " + executable.getFullPathName());
+                break;
+            }
+        }
     }
 
-    if (! script.existsAsFile())
+    if (! executable.existsAsFile())
     {
         MatchResult fail;
         fail.success = false;
-        fail.errorMessage = "run_match.py not found at: " + script.getFullPathName();
+        fail.errorMessage = "Tone matcher not found";
+        
+        DBG("[PythonBridge] Neither exe nor script found!");
 
         auto cb = callbackPending;
         juce::MessageManager::callAsync([cb, fail]() { if (cb) cb(fail); });
         return;
     }
+    
+    // Use script variable for compatibility with rest of code
+    juce::File script = executable;
 
     // Temporary output file
     juce::File outputJson = juce::File::getSpecialLocation(juce::File::tempDirectory)
                                 .getChildFile("tonematch_result.json");
     outputJson.deleteFile();
 
-    // Build command line
-    juce::String cmd = pythonPath
-        + " \"" + script.getFullPathName() + "\""
-        + " --di \"" + diFilePending.getFullPathName() + "\""
-        + " --ref \"" + refFilePending.getFullPathName() + "\""
-        + " --out \"" + outputJson.getFullPathName() + "\"";
+    // Build command line - different for exe vs python script
+    juce::String cmd;
+    if (executableType == "exe")
+    {
+        // Standalone exe - run directly
+        cmd = "\"" + script.getFullPathName() + "\""
+            + " --di \"" + diFilePending.getFullPathName() + "\""
+            + " --ref \"" + refFilePending.getFullPathName() + "\""
+            + " --out \"" + outputJson.getFullPathName() + "\"";
+    }
+    else
+    {
+        // Python script - need python interpreter
+        cmd = pythonPath
+            + " \"" + script.getFullPathName() + "\""
+            + " --di \"" + diFilePending.getFullPathName() + "\""
+            + " --ref \"" + refFilePending.getFullPathName() + "\""
+            + " --out \"" + outputJson.getFullPathName() + "\"";
+    }
 
-    DBG("PythonBridge: launching: " + cmd);
+    DBG("[PythonBridge] Launching: " + cmd);
 
     // Launch child process
     juce::ChildProcess process;
@@ -97,12 +166,15 @@ void PythonBridge::run()
     if (! finished || exitCode != 0)
     {
         juce::String stdErr = process.readAllProcessOutput();
+        DBG("[PythonBridge] Process failed. Exit code: " + juce::String(exitCode));
+        DBG("[PythonBridge] stderr: " + stdErr);
 
         MatchResult fail;
         fail.success = false;
+        // Don't show full stderr in UI - just a simple message
         fail.errorMessage = finished
-            ? ("Python exited with code " + juce::String(exitCode) + ": " + stdErr)
-            : "Python process timed out after 10 minutes.";
+            ? "Matching failed. Check logs."
+            : "Process timed out.";
 
         auto cb = callbackPending;
         juce::MessageManager::callAsync([cb, fail]() { if (cb) cb(fail); });
@@ -167,5 +239,7 @@ MatchResult PythonBridge::parseResultJson(const juce::File& jsonFile)
     result.success = true;
     return result;
 }
+
+
 
 

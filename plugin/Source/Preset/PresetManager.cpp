@@ -6,7 +6,7 @@
 */
 
 #include "PresetManager.h"
-#include "DSP/DSPChain.h"
+#include "PluginProcessor.h"
 
 //==============================================================================
 PresetManager::PresetManager()  = default;
@@ -15,16 +15,16 @@ PresetManager::~PresetManager() = default;
 //==============================================================================
 bool PresetManager::savePreset(const juce::File& file,
                                const juce::AudioProcessorValueTreeState& apvts,
-                               const DSPChain& chain) const
+                               const ToneMatchAudioProcessor& processor) const
 {
-    auto data = stateToVar(apvts, chain);
+    auto data = stateToVar(apvts, processor);
     auto jsonText = juce::JSON::toString(data, true);   // pretty-print
     return file.replaceWithText(jsonText);
 }
 
 bool PresetManager::loadPreset(const juce::File& file,
                                juce::AudioProcessorValueTreeState& apvts,
-                               DSPChain& chain) const
+                               ToneMatchAudioProcessor& processor) const
 {
     if (! file.existsAsFile())
         return false;
@@ -35,13 +35,13 @@ bool PresetManager::loadPreset(const juce::File& file,
     if (! data.isObject())
         return false;
 
-    varToState(data, apvts, chain);
+    varToState(data, apvts, processor);
     return true;
 }
 
 //==============================================================================
 juce::var PresetManager::stateToVar(const juce::AudioProcessorValueTreeState& apvts,
-                                    const DSPChain& chain)
+                                    const ToneMatchAudioProcessor& processor)
 {
     auto* obj = new juce::DynamicObject();
 
@@ -50,14 +50,13 @@ juce::var PresetManager::stateToVar(const juce::AudioProcessorValueTreeState& ap
 
     // Rig info
     auto* rig = new juce::DynamicObject();
-    rig->setProperty("fx_nam",  chain.getPedalModelName());
-    rig->setProperty("amp_nam", chain.getAmpModelName());
-    rig->setProperty("ir",      chain.getIRName());
-    // Paths are not stored from APVTS — they live in the chain.
-    // For simplicity store names only; the user re-browses if paths differ.
-    rig->setProperty("fx_nam_path",  "");
-    rig->setProperty("amp_nam_path", "");
-    rig->setProperty("ir_path",      "");
+    rig->setProperty("fx_nam",  processor.getPedalModelName());
+    rig->setProperty("amp_nam", processor.getAmpModelName());
+    rig->setProperty("ir",      processor.getIRName());
+    // Store full paths for proper preset loading
+    rig->setProperty("fx_nam_path",  processor.getCurrentFxPath());
+    rig->setProperty("amp_nam_path", processor.getCurrentAmpPath());
+    rig->setProperty("ir_path",      processor.getCurrentIrPath());
     obj->setProperty("rig", juce::var(rig));
 
     // Parameters
@@ -87,46 +86,43 @@ juce::var PresetManager::stateToVar(const juce::AudioProcessorValueTreeState& ap
 
 void PresetManager::varToState(const juce::var& data,
                                juce::AudioProcessorValueTreeState& apvts,
-                               DSPChain& chain)
+                               ToneMatchAudioProcessor& processor)
 {
-    // ── Restore parameters ───────────────────────────────────────────────────
-    if (auto* params = data.getProperty("params", {}).getDynamicObject())
-    {
-        auto setParam = [&](const juce::String& apvtsId, const juce::Identifier& jsonKey)
-        {
-            if (auto* p = apvts.getParameter(apvtsId))
-            {
-                float val = static_cast<float>((double) params->getProperty(jsonKey));
-                p->setValueNotifyingHost(p->convertTo0to1(val));
-            }
-        };
+    // Build RigParameters from JSON data
+    RigParameters params;
 
-        setParam("inputGain",     "input_gain_db");
-        setParam("preEqGainDb",   "pre_eq_gain_db");
-        setParam("preEqFreqHz",   "pre_eq_freq_hz");
-        setParam("reverbWet",     "reverb_wet");
-        setParam("reverbRoomSize","reverb_room_size");
-        setParam("delayTimeMs",   "delay_time_ms");
-        setParam("delayMix",      "delay_mix");
-        setParam("finalEqGainDb", "final_eq_gain_db");
-    }
-
-    // ── Restore rig models ───────────────────────────────────────────────────
+    // ── Read rig paths ───────────────────────────────────────────────────────
     if (auto* rig = data.getProperty("rig", {}).getDynamicObject())
     {
-        juce::String fxPath  = rig->getProperty("fx_nam_path").toString();
-        juce::String ampPath = rig->getProperty("amp_nam_path").toString();
-        juce::String irPath  = rig->getProperty("ir_path").toString();
-
-        if (fxPath.isNotEmpty())
-            chain.loadPedalModel(juce::File(fxPath));
-
-        if (ampPath.isNotEmpty())
-            chain.loadAmpModel(juce::File(ampPath));
-
-        if (irPath.isNotEmpty())
-            chain.loadIR(juce::File(irPath));
+        params.fx_path  = rig->getProperty("fx_nam_path").toString();
+        params.amp_path = rig->getProperty("amp_nam_path").toString();
+        params.ir_path  = rig->getProperty("ir_path").toString();
     }
+
+    // ── Read parameters ─────────────────────────────────────────────────────
+    if (auto* paramsObj = data.getProperty("params", {}).getDynamicObject())
+    {
+        auto readFloat = [&](const juce::Identifier& key, float defaultValue) -> float
+        {
+            auto val = paramsObj->getProperty(key);
+            if (val.isDouble() || val.isInt())
+                return static_cast<float>((double) val);
+            return defaultValue;
+        };
+
+        params.input_gain_db      = readFloat("input_gain_db", 0.0f);
+        params.pre_eq_gain_db     = readFloat("pre_eq_gain_db", 0.0f);
+        params.pre_eq_freq_hz     = readFloat("pre_eq_freq_hz", 800.0f);
+        params.reverb_wet         = readFloat("reverb_wet", 0.0f);
+        params.reverb_room_size   = readFloat("reverb_room_size", 0.5f);
+        params.delay_time_ms       = readFloat("delay_time_ms", 100.0f);
+        params.delay_mix           = readFloat("delay_mix", 0.0f);
+        params.final_eq_gain_db   = readFloat("final_eq_gain_db", 0.0f);
+    }
+
+    // ── Apply complete rig using applyNewRig ─────────────────────────────────
+    // This will load models and update all parameters via APVTS
+    processor.applyNewRig(params);
 }
 
 //==============================================================================

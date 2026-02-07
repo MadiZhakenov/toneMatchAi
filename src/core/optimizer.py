@@ -629,7 +629,7 @@ class ToneOptimizer:
             raise ValueError(f"Sample rates must match: DI={di_track.sr}, Ref={ref_track.sr}")
         
         print("\n" + "="*70)
-        print("🍷 SMART SOMMELIER: Intelligent Two-Level Rig Search")
+        print("[SMART SOMMELIER] Intelligent Two-Level Rig Search")
         print("="*70)
         
         # ========== STEP 1: Analyze Reference ==========
@@ -765,7 +765,7 @@ class ToneOptimizer:
         total_combinations = len(top_2_amps) * len(fx_models_with_none) * len(ir_files)
         current = 0
         
-        print(f"  Testing {total_combinations} combinations (2 amps × {len(fx_models_with_none)} FX × {len(ir_files)} IR)...")
+        print(f"  Testing {total_combinations} combinations (2 amps x {len(fx_models_with_none)} FX x {len(ir_files)} IR)...")
         
         for amp_info in top_2_amps:
             amp_path = amp_info['amp_path']
@@ -836,7 +836,7 @@ class ToneOptimizer:
         speedup = total_possible / total_tested if total_tested > 0 else 1
         
         print(f"\n{'='*70}")
-        print(f"🍷 SMART SOMMELIER: Search Complete!")
+        print(f"[SMART SOMMELIER] Search Complete!")
         print(f"{'='*70}")
         print(f"  Reference: {ref_analysis['aggression_level'].upper()} style")
         print(f"  Combinations tested: {total_tested} (vs {total_possible} brute force)")
@@ -2353,7 +2353,7 @@ class ToneOptimizer:
             - 'best_parameters': Optimized Post-FX parameters
         """
         print("=" * 70)
-        print("🍷 Universal Optimization: Smart Sommelier + Deep Post-FX Tuning")
+        print("[Universal Optimization] Smart Sommelier + Deep Post-FX Tuning")
         print("=" * 70)
         
         # Этап 1-2: Smart Sommelier - интеллектуальный поиск оборудования
@@ -2369,18 +2369,18 @@ class ToneOptimizer:
         
         # Show Smart Sommelier summary
         print(f"\n{'='*70}")
-        print(f"[Этапы 1-2 завершены] Smart Sommelier нашел лучший риг!")
+        print(f"[Steps 1-2 Complete] Smart Sommelier found the best rig!")
         print(f"{'='*70}")
-        print(f"  Референс определен как: {ref_analysis.get('aggression_level', 'unknown').upper()}")
-        print(f"  Протестировано комбинаций: {grid_results.get('total_tested', 0)}")
-        print(f"  Ускорение: {grid_results.get('speedup', 1):.1f}x")
-        print(f"\n  Лучшая комбинация:")
+        print(f"  Reference classified as: {ref_analysis.get('aggression_level', 'unknown').upper()}")
+        print(f"  Combinations tested: {grid_results.get('total_tested', 0)}")
+        print(f"  Speedup: {grid_results.get('speedup', 1):.1f}x")
+        print(f"\n  Best combination:")
         print(f"    [{best_rig['fx_nam_name']} -> {best_rig['amp_nam_name']} -> {best_rig['ir_name']}]")
         print(f"    Loss: {best_rig.get('g_loss', best_rig.get('loss', 0.0)):.4f}, Gain: {best_rig['input_gain_db']:.0f}dB")
         
-        # Этап 3: Deep Post-FX Optimization - тонкая настройка с "зрячим" оптимизатором
+        # Step 3: Deep Post-FX Optimization
         print(f"\n{'='*70}")
-        print("[Этап 3: Финальная настройка] Оптимизируем Post-FX (Pre-EQ, Reverb, Delay)...")
+        print("[Step 3: Final Tuning] Optimizing Post-FX (Pre-EQ, Reverb, Delay)...")
         print("Using 'Sighted' Optimizer: minimizing 4-component error vector")
         print("This may take 2-3 minutes...")
         
@@ -2402,11 +2402,11 @@ class ToneOptimizer:
             use_predictor=False  # Всегда использовать "зрячий" оптимизатор
         )
         
-        print(f"\n[Этап 3 завершен] Post-FX оптимизация завершена")
+        print(f"\n[Step 3 Complete] Post-FX optimization finished")
         print(f"Final Loss: {post_fx_results['final_loss']:.6f}")
         
-        # Применение оптимизированных параметров к полному треку
-        print("\n[Применение] Применение оптимизированных параметров к полному треку...")
+        # Apply optimized parameters to full track
+        print("\n[Applying] Applying optimized parameters to full track...")
         processor = ToneProcessor()
         
         gain_params = {
@@ -2425,7 +2425,7 @@ class ToneOptimizer:
             ref_track=ref_track
         )
         
-        print(f"[OK] Обработка завершена")
+        print(f"[OK] Processing complete")
         
         # Prepare final result
         result = {

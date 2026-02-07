@@ -9,6 +9,7 @@
 
 #if NAM_CORE_AVAILABLE
 #include "NAM/dsp.h"
+#include "NAM/get_dsp.h"
 #include "NAM/activations.h"
 #endif
 
@@ -58,9 +59,17 @@ void NAMProcessor::process(juce::dsp::AudioBlock<float>& block)
         std::unique_lock<std::mutex> lock(modelMutex, std::try_to_lock);
         if (lock.owns_lock() && namModel)
         {
-            // NeuralAmpModelerCore processes a buffer of floats
-            namModel->process(scratchIn.data(), scratchOut.data(), numSamples);
-            namModel->finalize_(numSamples);
+            // NeuralAmpModelerCore processes double** buffers
+            // Create temporary double buffers for NAM API
+            std::vector<double> tempIn(numSamples);
+            std::vector<double> tempOut(numSamples);
+            std::copy(scratchIn.begin(), scratchIn.begin() + numSamples, tempIn.begin());
+            
+            double* inputPtrs[1] = { tempIn.data() };
+            double* outputPtrs[1] = { tempOut.data() };
+            namModel->process(inputPtrs, outputPtrs, numSamples);
+            
+            std::copy(tempOut.begin(), tempOut.end(), scratchOut.begin());
         }
         else
         {
@@ -91,7 +100,7 @@ bool NAMProcessor::loadModel(const juce::File& namFile)
 #if NAM_CORE_AVAILABLE
     try
     {
-        auto newModel = nam::get_dsp(namFile.getFullPathName().toStdString());
+        auto newModel = nam::get_dsp(std::filesystem::path(namFile.getFullPathName().toStdString()));
         if (newModel == nullptr)
             return false;
 
@@ -135,5 +144,6 @@ juce::String NAMProcessor::getModelName() const
 {
     return currentModelName;
 }
+
 
 

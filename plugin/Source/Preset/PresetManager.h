@@ -10,7 +10,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
 
-class DSPChain;  // forward
+class ToneMatchAudioProcessor;  // forward
 
 //==============================================================================
 /**
@@ -33,22 +33,22 @@ public:
     /** Save current state to a .json file. */
     bool savePreset(const juce::File& file,
                     const juce::AudioProcessorValueTreeState& apvts,
-                    const DSPChain& chain) const;
+                    const ToneMatchAudioProcessor& processor) const;
 
     /** Load state from a .json file.  Updates APVTS params and reloads models. */
     bool loadPreset(const juce::File& file,
                     juce::AudioProcessorValueTreeState& apvts,
-                    DSPChain& chain) const;
+                    ToneMatchAudioProcessor& processor) const;
 
     //==========================================================================
     /** Serialize APVTS state to a juce::var (for getStateInformation). */
     static juce::var stateToVar(const juce::AudioProcessorValueTreeState& apvts,
-                                const DSPChain& chain);
+                                const ToneMatchAudioProcessor& processor);
 
     /** Restore APVTS state from a juce::var (for setStateInformation). */
     static void varToState(const juce::var& data,
                            juce::AudioProcessorValueTreeState& apvts,
-                           DSPChain& chain);
+                           ToneMatchAudioProcessor& processor);
 
     //==========================================================================
     /** Returns default preset directory (user documents / ToneMatchAI / Presets). */
