@@ -117,8 +117,11 @@ class NAMProcessor:
         # Note: weights_only=False is required for NAM models (PyTorch 2.6+ default changed)
         try:
             model_data = torch.load(nam_path, map_location='cpu', weights_only=False)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"NAM model file not found: {nam_path}")
         except Exception as e:
-            raise RuntimeError(f"Failed to load NAM model: {e}")
+            error_msg = f"Failed to load NAM model '{os.path.basename(nam_path)}': {str(e)}"
+            raise RuntimeError(error_msg)
         
         # NAM models typically contain a 'model' key or are the model directly
         # Try to extract the model
@@ -148,14 +151,22 @@ class NAMProcessor:
             with torch.no_grad():
                 if hasattr(model, '__call__') or hasattr(model, 'forward'):
                     # It's a callable model
-                    output_tensor = model(audio_tensor)
+                    try:
+                        output_tensor = model(audio_tensor)
+                    except Exception as e:
+                        raise RuntimeError(f"NAM model '{os.path.basename(nam_path)}' processing failed: {str(e)}")
                 else:
                     # Try to find a processing function
-                    raise RuntimeError("Model structure not recognized")
+                    raise RuntimeError(f"NAM model '{os.path.basename(nam_path)}' structure not recognized")
             
             # Convert back to numpy
             if isinstance(output_tensor, torch.Tensor):
                 output = output_tensor.squeeze().cpu().numpy()
+                # Validate output
+                if len(output) == 0:
+                    raise RuntimeError(f"NAM model '{os.path.basename(nam_path)}' produced empty output")
+                if np.all(np.isnan(output)):
+                    raise RuntimeError(f"NAM model '{os.path.basename(nam_path)}' produced NaN output")
             else:
                 raise RuntimeError("Model output is not a tensor")
             

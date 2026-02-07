@@ -29,7 +29,10 @@ struct RigParameters
     float input_gain_db = 0.0f;
     float pre_eq_gain_db = 0.0f;
     float pre_eq_freq_hz = 800.0f;
-    float final_eq_gain_db = 0.0f;
+    float hpf_freq = 70.0f;
+    float lpf_freq = 8000.0f;
+    bool ai_lock = false;
+    bool cab_lock = false;
 };
 
 //==============================================================================
@@ -132,6 +135,15 @@ public:
     /** Stop capturing DI audio. */
     void stopCapturingDI();
 
+    /** Whether DI audio is currently being captured. */
+    bool isCapturingDI() const { return capturing.load(std::memory_order_acquire); }
+
+    /** Get the number of samples captured so far. */
+    int getCapturedDISamples() const { return capturedDIWritePos.load(std::memory_order_acquire); }
+
+    /** Get the total capacity of the DI buffer. */
+    int getDIBufferSize() const { return capturedDI.getNumSamples(); }
+
     //==========================================================================
     // Progress State Management
 
@@ -143,6 +155,9 @@ public:
 
     /** Set progress stage and status text. */
     void setProgressStage(int stage, const juce::String& statusText = {});
+
+    /** Sync lock states from APVTS parameters. */
+    void syncLockStates();
 
 private:
     //==========================================================================
@@ -178,11 +193,16 @@ private:
 
     // Gain stages
     juce::dsp::Gain<float> input_gain;
-    juce::dsp::Gain<float> final_eq_gain;
 
     // Pre-EQ Filter
     juce::dsp::IIR::Filter<float> pre_eq_filter;
     juce::dsp::IIR::Coefficients<float>::Ptr pre_eq_coeffs;
+
+    // HPF/LPF Filters (after IR)
+    juce::dsp::IIR::Filter<float> hpf_filter;
+    juce::dsp::IIR::Coefficients<float>::Ptr hpf_coeffs;
+    juce::dsp::IIR::Filter<float> lpf_filter;
+    juce::dsp::IIR::Coefficients<float>::Ptr lpf_coeffs;
 
     // Delay wet/dry mixing buffer
     juce::AudioBuffer<float> delay_dry_buffer;
@@ -208,6 +228,11 @@ private:
     juce::AudioBuffer<float> capturedDI;
     std::atomic<bool> capturing { false };
     std::atomic<int> capturedDIWritePos { 0 };
+    float capturedDIPeakDb = -100.0f;
+
+    // Lock states for AI/CAB
+    std::atomic<bool> aiLockEnabled { false };
+    std::atomic<bool> cabLockEnabled { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToneMatchAudioProcessor)
 };

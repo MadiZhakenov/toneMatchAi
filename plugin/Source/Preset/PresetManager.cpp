@@ -69,6 +69,13 @@ juce::var PresetManager::stateToVar(const juce::AudioProcessorValueTreeState& ap
         return 0.0;
     };
 
+    auto readBoolParam = [&](const juce::String& id) -> bool
+    {
+        if (auto* p = apvts.getRawParameterValue(id))
+            return p->load() > 0.5f;
+        return false;
+    };
+
     params->setProperty("input_gain_db",    readParam("inputGain"));
     params->setProperty("pre_eq_gain_db",   readParam("preEqGainDb"));
     params->setProperty("pre_eq_freq_hz",   readParam("preEqFreqHz"));
@@ -76,7 +83,10 @@ juce::var PresetManager::stateToVar(const juce::AudioProcessorValueTreeState& ap
     params->setProperty("reverb_room_size", readParam("reverbRoomSize"));
     params->setProperty("delay_time_ms",    readParam("delayTimeMs"));
     params->setProperty("delay_mix",        readParam("delayMix"));
-    params->setProperty("final_eq_gain_db", readParam("finalEqGainDb"));
+    params->setProperty("hpf_freq",         readParam("hpfFreq"));
+    params->setProperty("lpf_freq",         readParam("lpfFreq"));
+    params->setProperty("ai_lock",          readBoolParam("aiLock"));
+    params->setProperty("cab_lock",         readBoolParam("cabLock"));
     obj->setProperty("params", juce::var(params));
 
     obj->setProperty("loss", 0.0);
@@ -110,6 +120,16 @@ void PresetManager::varToState(const juce::var& data,
             return defaultValue;
         };
 
+        auto readBool = [&](const juce::Identifier& key, bool defaultValue) -> bool
+        {
+            auto val = paramsObj->getProperty(key);
+            if (val.isBool())
+                return (bool) val;
+            if (val.isDouble() || val.isInt())
+                return ((double) val) > 0.5;
+            return defaultValue;
+        };
+
         params.input_gain_db      = readFloat("input_gain_db", 0.0f);
         params.pre_eq_gain_db     = readFloat("pre_eq_gain_db", 0.0f);
         params.pre_eq_freq_hz     = readFloat("pre_eq_freq_hz", 800.0f);
@@ -117,7 +137,10 @@ void PresetManager::varToState(const juce::var& data,
         params.reverb_room_size   = readFloat("reverb_room_size", 0.5f);
         params.delay_time_ms       = readFloat("delay_time_ms", 100.0f);
         params.delay_mix           = readFloat("delay_mix", 0.0f);
-        params.final_eq_gain_db   = readFloat("final_eq_gain_db", 0.0f);
+        params.hpf_freq           = readFloat("hpf_freq", 70.0f);
+        params.lpf_freq           = readFloat("lpf_freq", 8000.0f);
+        params.ai_lock            = readBool("ai_lock", false);
+        params.cab_lock           = readBool("cab_lock", false);
     }
 
     // ── Apply complete rig using applyNewRig ─────────────────────────────────

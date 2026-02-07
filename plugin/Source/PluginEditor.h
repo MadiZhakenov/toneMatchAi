@@ -40,15 +40,27 @@ private:
 
     // ── Section A: Main Control ──────────────────────────────────────────────
     juce::TextButton matchToneButton;
+    juce::TextButton recordButton;
     double progressValue { 0.0 };
     juce::ProgressBar progressBar;
     juce::Label statusLabel;
 
     // ── Section B: Diagnostics ───────────────────────────────────────────────
     juce::Label rigNameLabel;
+    juce::ToggleButton aiLockButton;
+    juce::ToggleButton cabLockButton;
     juce::Label cabinetLabel;
+    
+    // Expert Tweaks section
+    juce::Label expertTweaksLabel;
     juce::Slider toneShapeSlider;
     juce::Label toneShapeLabel;
+    juce::Slider gainSlider;
+    juce::Label gainLabel;
+    juce::Slider hpfSlider;
+    juce::Label hpfLabel;
+    juce::Slider lpfSlider;
+    juce::Label lpfLabel;
 
     // ── Section C: Details & Presets ─────────────────────────────────────────
     // Delay controls
@@ -66,9 +78,15 @@ private:
     // Preset buttons
     juce::TextButton saveButton;
     juce::TextButton loadButton;
+    juce::TextButton namFileButton;
 
     // APVTS attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneShapeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpfAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lpfAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> aiLockAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> cabLockAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayTimeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayMixAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> reverbSizeAttachment;

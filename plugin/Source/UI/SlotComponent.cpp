@@ -73,3 +73,9 @@ void SlotComponent::setModelName(const juce::String& name)
 
 
 
+
+
+
+
+
+

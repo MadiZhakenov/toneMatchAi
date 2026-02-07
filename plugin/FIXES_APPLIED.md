@@ -9,8 +9,13 @@
    - Улучшена инициализация кнопок (текст устанавливается явно)
 4. **Progress Display**: Добавлен `repaint()` для обновления progress bar
 5. **CMakeLists.txt**: Исправлена ошибка с пустым `set_target_properties`
+6. **Infinite Loop / Hang Fix**: Исправлена проблема, при которой процесс подбора тона зависал ("infinite loop"). Причина была в переполнении буфера вывода Python-процесса.
 
 ## Что было изменено:
+
+### PythonBridge.cpp:
+- Заменен блокирующий вызов `waitForProcessToFinish` на цикл с чтением вывода `readAllProcessOutput`.
+- Это предотвращает зависание процесса при большом объеме логов (что характерно для `ToneOptimizer`).
 
 ### PluginEditor.cpp:
 - Увеличен размер окна до 700x550
@@ -33,4 +38,3 @@
 ## Примечание:
 
 Ошибка при установке в `C:\Program Files\Common Files\VST3` - это нормально, требуется права администратора. Плагин успешно собирается в `build/ToneMatchAI_artefacts/Release/VST3/`.
-

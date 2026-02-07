@@ -8,10 +8,44 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+// #region agent log - debug helper
+#include <fstream>
+#include <chrono>
+static int dbgBlockCount = 0;
+static void dbgLog(const char* loc, const char* msg, const char* hyp,
+                   float val1 = 0.f, float val2 = 0.f, float val3 = 0.f,
+                   int i1 = 0, int i2 = 0, bool forceLog = false) {
+    // Always log if forceLog=true (for non-audio-thread calls), otherwise log every 500th block
+    if (!forceLog && (dbgBlockCount % 500) != 0) return;
+    std::ofstream f("e:\\Users\\Desktop\\toneMatchAi\\.cursor\\debug.log", std::ios::app);
+    if (!f.is_open()) return;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    f << "{\"location\":\"" << loc << "\",\"message\":\"" << msg
+      << "\",\"hypothesisId\":\"" << hyp
+      << "\",\"data\":{\"v1\":" << val1 << ",\"v2\":" << val2 << ",\"v3\":" << val3
+      << ",\"i1\":" << i1 << ",\"i2\":" << i2
+      << "},\"timestamp\":" << ms << "}\n";
+    f.close();
+}
+static float peakOf(const juce::AudioBuffer<float>& buf, int ch) {
+    if (ch >= buf.getNumChannels() || buf.getNumSamples() == 0) return 0.f;
+    float pk = 0.f;
+    auto* r = buf.getReadPointer(ch);
+    for (int i = 0; i < buf.getNumSamples(); ++i)
+        pk = std::max(pk, std::abs(r[i]));
+    return pk;
+}
+static float peakToDb(float peak) {
+    if (peak <= 0.f) return -200.f;
+    return 20.f * std::log10(peak);
+}
+// #endregion
+
 //==============================================================================
 ToneMatchAudioProcessor::ToneMatchAudioProcessor()
     : AudioProcessor(BusesProperties()
-          .withInput ("Input",  juce::AudioChannelSet::stereo(), true)
+          .withInput ("Input",  juce::AudioChannelSet::mono(), true)  // Mono input for guitar
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "Parameters", createParameterLayout()),
       progressState("ProgressState")
@@ -32,7 +66,7 @@ ToneMatchAudioProcessor::createParameterLayout()
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("inputGain", 1), "Input Gain",
-        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f, "dB"));
+        juce::NormalisableRange<float>(-24.0f, 60.0f, 0.1f), 0.0f, "dB"));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("preEqGainDb", 1), "Pre-EQ Gain",
@@ -59,8 +93,18 @@ ToneMatchAudioProcessor::createParameterLayout()
         juce::NormalisableRange<float>(0.0f, 0.5f, 0.01f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("finalEqGainDb", 1), "Final EQ Gain",
-        juce::NormalisableRange<float>(-3.0f, 3.0f, 0.1f), 0.0f, "dB"));
+        juce::ParameterID("hpfFreq", 1), "HPF Frequency",
+        juce::NormalisableRange<float>(70.0f, 150.0f, 1.0f), 70.0f, "Hz"));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("lpfFreq", 1), "LPF Frequency",
+        juce::NormalisableRange<float>(4000.0f, 8000.0f, 1.0f), 8000.0f, "Hz"));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("aiLock", 1), "AI Lock", false));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("cabLock", 1), "CAB Lock", false));
 
     return { params.begin(), params.end() };
 }
@@ -98,12 +142,19 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     pre_eq_filter.prepare(spec);
     pre_eq_filter.coefficients = pre_eq_coeffs;
 
-    // Final gain
-    final_eq_gain.prepare(spec);
-    final_eq_gain.setRampDurationSeconds(0.02);
+    // HPF/LPF filters (after IR)
+    hpf_coeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(
+        sampleRate, 70.0f);
+    hpf_filter.prepare(spec);
+    hpf_filter.coefficients = hpf_coeffs;
 
-    // Prepare DI capture buffer (store up to 10 seconds for matching)
-    capturedDI.setSize(1, static_cast<int>(sampleRate * 10.0));
+    lpf_coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(
+        sampleRate, 8000.0f);
+    lpf_filter.prepare(spec);
+    lpf_filter.coefficients = lpf_coeffs;
+
+    // Prepare DI capture buffer (store up to 30 seconds for matching)
+    capturedDI.setSize(1, static_cast<int>(sampleRate * 30.0));
     capturedDI.clear();
 }
 
@@ -116,7 +167,8 @@ void ToneMatchAudioProcessor::releaseResources()
     delay_line.reset();
     reverb_unit.reset();
     pre_eq_filter.reset();
-    final_eq_gain.reset();
+    hpf_filter.reset();
+    lpf_filter.reset();
 }
 
 bool ToneMatchAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -129,9 +181,9 @@ bool ToneMatchAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts)
         && mainOutput != juce::AudioChannelSet::stereo())
         return false;
 
-    // Input can be mono or match output
+    // Input can be mono (guitar) or stereo
     if (mainInput != juce::AudioChannelSet::mono()
-        && mainInput != mainOutput)
+        && mainInput != juce::AudioChannelSet::stereo())
         return false;
 
     return true;
@@ -142,9 +194,20 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // Clear extra output channels
-    for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
-        buffer.clear(ch, 0, buffer.getNumSamples());
+    // Copy mono input to stereo output if needed
+    const int numInputChannels = getTotalNumInputChannels();
+    const int numOutputChannels = getTotalNumOutputChannels();
+    if (numInputChannels == 1 && numOutputChannels == 2)
+    {
+        // Copy mono input to both output channels
+        buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+    }
+    else
+    {
+        // Clear extra output channels
+        for (int ch = numInputChannels; ch < numOutputChannels; ++ch)
+            buffer.clear(ch, 0, buffer.getNumSamples());
+    }
 
     // ── CAPTURE DI (before processing) ────────────────────────────────────────
     if (capturing.load(std::memory_order_acquire))
@@ -184,15 +247,46 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const auto numSamples  = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
+    // Early exit if no samples
+    if (numSamples == 0 || numChannels == 0)
+        return;
+
+    // #region agent log
+    dbgBlockCount++;
+    float inputPeakCh0 = peakOf(buffer, 0);
+    float inputPeakCh1 = (numChannels > 1) ? peakOf(buffer, 1) : 0.f;
+    float inputMax = std::max(inputPeakCh0, inputPeakCh1);
+    float inputDbCh0 = peakToDb(inputPeakCh0);
+    float inputDbCh1 = peakToDb(inputPeakCh1);
+    float inputDbMax = peakToDb(inputMax);
+    dbgLog("processBlock:ENTRY", "input signal dB", "A",
+           inputDbCh0, inputDbCh1, inputDbMax,
+           getTotalNumInputChannels(), getTotalNumOutputChannels());
+    
+    // Check if input is too quiet (likely routing issue)
+    static int quietWarningCount = 0;
+    if (inputDbMax < -60.0f && (quietWarningCount % 1000) == 0) {
+        dbgLog("processBlock:WARNING", "input too quiet", "G",
+               inputDbMax, 0, 0, 0, 0);
+        quietWarningCount++;
+    }
+    // #endregion
+
     // Read parameters from APVTS (lock-free)
     const float gainDb      = apvts.getRawParameterValue("inputGain")->load();
     const float eqGainDb    = apvts.getRawParameterValue("preEqGainDb")->load();
     const float eqFreq      = apvts.getRawParameterValue("preEqFreqHz")->load();
+    // #region agent log
+    float inputDbBeforeGain = peakToDb(peakOf(buffer, 0));
+    dbgLog("processBlock:PARAMS", "params and input", "H",
+           gainDb, inputDbBeforeGain, eqGainDb, 0, 0);
+    // #endregion
     const float revWet      = apvts.getRawParameterValue("reverbWet")->load();
     const float revRoom     = apvts.getRawParameterValue("reverbRoomSize")->load();
     const float delTime     = apvts.getRawParameterValue("delayTimeMs")->load();
     const float delMixVal   = apvts.getRawParameterValue("delayMix")->load();
-    const float finGainDb   = apvts.getRawParameterValue("finalEqGainDb")->load();
+    const float hpfFreq     = apvts.getRawParameterValue("hpfFreq")->load();
+    const float lpfFreq     = apvts.getRawParameterValue("lpfFreq")->load();
 
     juce::dsp::AudioBlock<float> block(buffer);
 
@@ -202,6 +296,12 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         juce::dsp::ProcessContextReplacing<float> ctx(block);
         input_gain.process(ctx);
     }
+    // #region agent log
+    float afterGainPeak = peakOf(buffer, 0);
+    float afterGainDb = peakToDb(afterGainPeak);
+    dbgLog("processBlock:AFTER_GAIN", "after input gain dB", "B",
+           afterGainDb, gainDb, afterGainPeak, 0, 0);
+    // #endregion
 
     // ── Stage 1b: Pre-EQ (parametric peak) ───────────────────────────────────
     {
@@ -221,17 +321,94 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // #region agent log
+    dbgLog("processBlock:AFTER_EQ", "after pre-eq", "C",
+           peakOf(buffer, 0), eqGainDb, eqFreq);
+    // #endregion
+
     // ── Stage 2: NAM Pedal ───────────────────────────────────────────────────
-    pedal.process(block);
+    {
+        bool pedalLoaded = pedal.isModelLoaded();
+        // #region agent log
+        dbgLog("processBlock:NAM_PEDAL", "pedal check", "D",
+               peakOf(buffer, 0), 0, 0, pedalLoaded ? 1 : 0);
+        // #endregion
+        if (pedalLoaded)
+            pedal.process(block);
+        // #region agent log
+        dbgLog("processBlock:AFTER_PEDAL", "after pedal", "D",
+               peakOf(buffer, 0), 0, 0, pedalLoaded ? 1 : 0);
+        // #endregion
+    }
 
     // ── Stage 3: NAM Amp ─────────────────────────────────────────────────────
-    amp.process(block);
+    {
+        bool ampLoaded = amp.isModelLoaded();
+        // #region agent log
+        dbgLog("processBlock:NAM_AMP", "amp check", "D",
+               peakOf(buffer, 0), 0, 0, ampLoaded ? 1 : 0);
+        // #endregion
+        if (ampLoaded)
+            amp.process(block);
+        // #region agent log
+        dbgLog("processBlock:AFTER_AMP", "after amp", "D",
+               peakOf(buffer, 0), 0, 0, ampLoaded ? 1 : 0);
+        // #endregion
+    }
 
     // ── Stage 4: IR Cabinet (Convolution) ────────────────────────────────────
     {
-        juce::dsp::ProcessContextReplacing<float> ctx(block);
-        ir_cabinet.process(ctx);
+        int irSize = ir_cabinet.getCurrentIRSize();
+        // #region agent log
+        dbgLog("processBlock:IR_CAB", "ir check", "E",
+               peakOf(buffer, 0), 0, 0, irSize);
+        // #endregion
+        if (irSize > 0)
+        {
+            juce::dsp::ProcessContextReplacing<float> ctx(block);
+            ir_cabinet.process(ctx);
+        }
+        // #region agent log
+        dbgLog("processBlock:AFTER_IR", "after ir", "E",
+               peakOf(buffer, 0), 0, 0, irSize);
+        // #endregion
     }
+
+    // ── Stage 4b: HPF (High-Pass Filter) ───────────────────────────────────────
+    {
+        *hpf_coeffs = *juce::dsp::IIR::Coefficients<float>::makeHighPass(
+            currentSampleRate, juce::jlimit(20.0f, 20000.0f, hpfFreq));
+
+        if (numChannels > 0)
+        {
+            auto monoBlock = block.getSingleChannelBlock(0);
+            juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
+            hpf_filter.process(ctx);
+
+            for (int ch = 1; ch < numChannels; ++ch)
+                buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+        }
+    }
+
+    // ── Stage 4c: LPF (Low-Pass Filter) ────────────────────────────────────────
+    {
+        *lpf_coeffs = *juce::dsp::IIR::Coefficients<float>::makeLowPass(
+            currentSampleRate, juce::jlimit(20.0f, 20000.0f, lpfFreq));
+
+        if (numChannels > 0)
+        {
+            auto monoBlock = block.getSingleChannelBlock(0);
+            juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
+            lpf_filter.process(ctx);
+
+            for (int ch = 1; ch < numChannels; ++ch)
+                buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+        }
+    }
+    // #region agent log
+    dbgLog("processBlock:AFTER_FILTERS", "after hpf+lpf", "F",
+           peakOf(buffer, 0), hpfFreq, lpfFreq);
+    // #endregion
 
     // ── Stage 5: Delay ───────────────────────────────────────────────────────
     {
@@ -269,12 +446,25 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         reverb_unit.process(ctx);
     }
 
-    // ── Final Gain ───────────────────────────────────────────────────────────
-    final_eq_gain.setGainDecibels(finGainDb);
+    // ── Stage 7: Safety Limiter ──────────────────────────────────────────────
+    // Prevent harsh digital clipping if gain is set too high
+    for (int ch = 0; ch < numChannels; ++ch)
     {
-        juce::dsp::ProcessContextReplacing<float> ctx(block);
-        final_eq_gain.process(ctx);
+        auto* data = buffer.getWritePointer(ch);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Soft clipping (tanh-like) for safety
+            float val = data[i];
+            if (val > 1.0f) val = 1.0f;
+            else if (val < -1.0f) val = -1.0f;
+            data[i] = val;
+        }
     }
+
+    // #region agent log
+    dbgLog("processBlock:FINAL_OUTPUT", "final output after all", "G",
+           peakOf(buffer, 0), revWet, delMixVal);
+    // #endregion
 }
 
 //==============================================================================
@@ -326,59 +516,169 @@ void ToneMatchAudioProcessor::setProgressStage(int stage, const juce::String& st
         ", Progress: " + juce::String(progress * 100.0, 1) + "%");
 }
 
-void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
+void ToneMatchAudioProcessor::syncLockStates()
 {
-    DBG("[ToneMatch] triggerMatch called with file: " + refFile.getFullPathName());
+    if (auto* aiLockParam = apvts.getRawParameterValue("aiLock"))
+        aiLockEnabled.store(aiLockParam->load() > 0.5f, std::memory_order_release);
     
-    if (pythonBridge.isRunning())
+    if (auto* cabLockParam = apvts.getRawParameterValue("cabLock"))
+        cabLockEnabled.store(cabLockParam->load() > 0.5f, std::memory_order_release);
+}
+
+void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
+
+{
+
+    dbgLog("triggerMatch:START", "triggerMatch called", "J", 0, 0, 0, refFile.existsAsFile() ? 1 : 0, 0, true);
+
+    DBG("[ToneMatch] triggerMatch called with file: " + refFile.getFullPathName());
+    dbgLog("triggerMatch:REF_FILE", ("Ref file: " + refFile.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, refFile.existsAsFile() ? 1 : 0, refFile.getSize(), true);
+
+    // Validate reference file FIRST
+    if (!refFile.existsAsFile())
     {
-        DBG("[ToneMatch] Python bridge already running, ignoring");
+        DBG("[ToneMatch] ERROR: Reference file does not exist: " + refFile.getFullPathName());
+        dbgLog("triggerMatch:REF_NOT_FOUND", ("Reference file not found: " + refFile.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, 0, 0, true);
+        setProgressStage(0, "Error: Reference file not found!");
         return;
     }
 
-    // Stop capturing before saving
-    stopCapturingDI();
+    // Check file size - empty files are invalid
+    if (refFile.getSize() == 0)
+    {
+        DBG("[ToneMatch] ERROR: Reference file is empty: " + refFile.getFullPathName());
+        dbgLog("triggerMatch:REF_EMPTY", ("Reference file is empty: " + refFile.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, 0, 0, true);
+        setProgressStage(0, "Error: Reference file is empty!");
+        return;
+    }
+    
+    dbgLog("triggerMatch:REF_VALID", "Reference file validated", "J", 0, 0, 0, refFile.getSize(), 0, true);
+
+    if (pythonBridge.isRunning())
+
+    {
+
+        dbgLog("triggerMatch:ALREADY_RUNNING", "Python bridge already running", "J", 0, 0, 0, 0, 0, true);
+
+        DBG("[ToneMatch] Python bridge already running, ignoring");
+
+        return;
+
+    }
+
+
 
     // Save the captured DI buffer to a temp .wav file
+
     juce::File diTemp = juce::File::getSpecialLocation(juce::File::tempDirectory)
+
                             .getChildFile("tonematch_di.wav");
 
-    // Get the actual number of samples captured
-    int numCapturedSamples = capturedDIWritePos.load(std::memory_order_acquire);
-    DBG("[ToneMatch] Captured DI samples: " + juce::String(numCapturedSamples));
-    
-    // If no DI captured, use the reference file as DI for testing
-    if (numCapturedSamples == 0)
+    // Delete old file if exists to ensure clean write
+    if (diTemp.existsAsFile())
     {
-        DBG("[ToneMatch] No DI audio captured - using reference file as DI for testing");
-        diTemp = refFile;  // Use reference as DI for testing
+        diTemp.deleteFile();
+    }
+
+    // Get the actual number of samples captured
+
+    int numCapturedSamples = capturedDIWritePos.load(std::memory_order_acquire);
+
+    DBG("[ToneMatch] Captured DI samples: " + juce::String(numCapturedSamples));
+    dbgLog("triggerMatch:DI_SAMPLES", "Captured DI samples", "J", 0, 0, 0, numCapturedSamples, getSampleRate(), true);
+
+    
+
+    // If no DI captured, warn the user
+
+    if (numCapturedSamples == 0)
+
+    {
+
+        DBG("[ToneMatch] No DI audio captured - please record some DI first");
+        dbgLog("triggerMatch:NO_DI", "No DI audio captured", "J", 0, 0, 0, 0, 0, true);
+        setProgressStage(0, "Error: Record DI first!");
+
+        return;
+
+    }
+
+    // Check if captured audio is not all zeros (very quiet audio)
+    float peakLinear = capturedDI.getMagnitude(0, 0, numCapturedSamples);
+    float peakDb = juce::Decibels::gainToDecibels(peakLinear, -100.0f);
+    dbgLog("triggerMatch:DI_PEAK", "DI peak level", "J", peakLinear, peakDb, 0, numCapturedSamples, 0, true);
+    
+    if (peakLinear < 1e-6f) // Very quiet or silent
+    {
+        DBG("[ToneMatch] WARNING: Captured DI is very quiet (peak: " + 
+            juce::String(peakDb, 1) + " dB)");
+        dbgLog("triggerMatch:DI_QUIET", "DI is very quiet", "J", peakLinear, peakDb, 0, 0, 0, true);
+        // Continue anyway - might be intentional
+    }
+
+    // Write captured mono DI to file (only the captured portion)
+    dbgLog("triggerMatch:WRITING_DI", ("Writing DI to: " + diTemp.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, numCapturedSamples, getSampleRate(), true);
+    
+    bool diFileWritten = false;
+    if (auto writer = std::unique_ptr<juce::AudioFormatWriter>(
+            juce::WavAudioFormat().createWriterFor(
+                new juce::FileOutputStream(diTemp),
+                getSampleRate(), 1, 16, {}, 0)))
+    {
+        writer->writeFromAudioSampleBuffer(capturedDI, 0, numCapturedSamples);
+        // Data will be written when writer is destroyed (RAII)
+        
+        DBG("[ToneMatch] Saved " + juce::String(numCapturedSamples) + " samples to " + diTemp.getFullPathName());
+        
+        // Calculate peak of captured DI for gain compensation
+        capturedDIPeakDb = juce::Decibels::gainToDecibels(peakLinear, -100.0f);
+        DBG("[ToneMatch] Captured DI Peak: " + juce::String(capturedDIPeakDb, 1) + " dB");
+        
+        diFileWritten = true;
+        dbgLog("triggerMatch:DI_WRITTEN", "DI file written successfully", "J", capturedDIPeakDb, 0, 0, numCapturedSamples, 0, true);
     }
     else
     {
-        // Write captured mono DI to file (only the captured portion)
-        if (auto writer = std::unique_ptr<juce::AudioFormatWriter>(
-                juce::WavAudioFormat().createWriterFor(
-                    new juce::FileOutputStream(diTemp),
-                    getSampleRate(), 1, 16, {}, 0)))
-        {
-            writer->writeFromAudioSampleBuffer(capturedDI, 0, numCapturedSamples);
-            DBG("[ToneMatch] Saved " + juce::String(numCapturedSamples) + " samples to " + diTemp.getFullPathName());
-        }
-        else
-        {
-            DBG("[ToneMatch] Failed to create WAV writer for DI file");
-            setProgressStage(0, "Error: Failed to save DI");
-            return;
-        }
+        DBG("[ToneMatch] Failed to create WAV writer for DI file");
+        dbgLog("triggerMatch:DI_WRITE_FAILED", ("Failed to create WAV writer: " + diTemp.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, 0, 0, true);
+        setProgressStage(0, "Error: Failed to save DI");
+        return;
     }
+
+    // CRITICAL: Verify DI file was actually written
+    if (!diTemp.existsAsFile())
+    {
+        DBG("[ToneMatch] ERROR: DI file was not created: " + diTemp.getFullPathName());
+        dbgLog("triggerMatch:DI_NOT_CREATED", ("DI file not created: " + diTemp.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, 0, 0, true);
+        setProgressStage(0, "Error: Failed to create DI file");
+        return;
+    }
+
+    int64 diFileSize = diTemp.getSize();
+    if (diFileSize == 0)
+    {
+        DBG("[ToneMatch] ERROR: DI file is empty: " + diTemp.getFullPathName());
+        dbgLog("triggerMatch:DI_EMPTY", ("DI file is empty: " + diTemp.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, 0, 0, true);
+        setProgressStage(0, "Error: DI file is empty");
+        return;
+    }
+
+    DBG("[ToneMatch] DI file verified: " + juce::String(diFileSize) + " bytes");
+    dbgLog("triggerMatch:DI_VERIFIED", "DI file verified", "J", 0, 0, 0, diFileSize, 0, true);
 
     // Set initial progress state
     DBG("[ToneMatch] Setting progress stage to 1 (Grid Search)");
     setProgressStage(1, "Grid Search...");
 
+    dbgLog("triggerMatch:STARTING_BRIDGE", "Starting Python bridge", "J", 0, 0, 0, 0, 0, true);
     DBG("[ToneMatch] Starting Python bridge...");
+    DBG("[ToneMatch] DI file: " + diTemp.getFullPathName() + " (" + juce::String(diTemp.getSize()) + " bytes)");
+    DBG("[ToneMatch] Ref file: " + refFile.getFullPathName() + " (" + juce::String(refFile.getSize()) + " bytes)");
+    dbgLog("triggerMatch:BRIDGE_START", "Calling pythonBridge.startMatch", "J", 0, 0, 0, diTemp.getSize(), refFile.getSize(), true);
+    
     pythonBridge.startMatch(diTemp, refFile,
         [this](const MatchResult& result) { 
+            dbgLog("triggerMatch:CALLBACK", "Python bridge callback received", "J", 0, 0, 0, result.success ? 1 : 0, 0, true);
             DBG("[ToneMatch] Python bridge callback received");
             onMatchComplete(result); 
         });
@@ -387,10 +687,18 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
 void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
 {
     // This runs on the message thread
+    // #region agent log
+    dbgLog("onMatchComplete:START", "match complete", "J",
+           0, 0, 0, result.success ? 1 : 0, 0, true);
+    // #endregion
+    
     if (! result.success)
     {
         DBG("Match failed: " + result.errorMessage);
         setProgressStage(0, "Error: " + result.errorMessage);
+        // #region agent log
+        dbgLog("onMatchComplete:FAIL", "match failed", "J", 0, 0, 0, 0, 0, true);
+        // #endregion
         return;
     }
     
@@ -402,14 +710,41 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
     params.fx_path = result.fxNamPath;
     params.amp_path = result.ampNamPath;
     params.ir_path = result.irPath;
+    
+    // #region agent log
+    bool fxExists = params.fx_path.isNotEmpty() ? juce::File(params.fx_path).existsAsFile() : false;
+    bool ampExists = params.amp_path.isNotEmpty() ? juce::File(params.amp_path).existsAsFile() : false;
+    bool irExists = params.ir_path.isNotEmpty() ? juce::File(params.ir_path).existsAsFile() : false;
+    dbgLog("onMatchComplete:PATHS", "match paths", "J",
+           0, 0, 0, (fxExists ? 1 : 0) | ((ampExists ? 1 : 0) << 1) | ((irExists ? 1 : 0) << 2), 0, true);
+    // #endregion
+    
     params.reverb_wet = result.reverbWet;
     params.reverb_room_size = result.reverbRoomSize;
     params.delay_time_ms = result.delayTimeMs;
     params.delay_mix = result.delayMix;
-    params.input_gain_db = result.inputGainDb;
+    
+    // Apply gain compensation: result.inputGainDb is relative to a DI normalized to -1dB.
+    // We compensate for the difference between our captured DI peak and -1dB.
+    float compensationDb = -1.0f - capturedDIPeakDb;
+    // Limit compensation to a reasonable range (e.g. max +40dB) to avoid noise floor explosion
+    compensationDb = juce::jlimit(-12.0f, 40.0f, compensationDb);
+    
+    params.input_gain_db = result.inputGainDb + compensationDb;
     params.pre_eq_gain_db = result.preEqGainDb;
     params.pre_eq_freq_hz = result.preEqFreqHz;
-    params.final_eq_gain_db = result.finalEqGainDb;
+    
+    // #region agent log - Check if parameters are always the same
+    dbgLog("onMatchComplete:PARAMS", "match params", "K",
+           params.input_gain_db, params.pre_eq_gain_db, params.pre_eq_freq_hz,
+           (int)(params.reverb_wet * 100), (int)(params.delay_mix * 100), true);
+    // #endregion
+    // Use default values for HPF/LPF (will be controlled by UI)
+    params.hpf_freq = 70.0f;
+    params.lpf_freq = 8000.0f;
+    // Preserve current lock states
+    params.ai_lock = aiLockEnabled.load(std::memory_order_acquire);
+    params.cab_lock = cabLockEnabled.load(std::memory_order_acquire);
 
     // Store last match result for UI display
     lastAmpName = result.ampNamName;
@@ -440,31 +775,107 @@ void ToneMatchAudioProcessor::stopCapturingDI()
 //==============================================================================
 void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
 {
-    // Load NAM models and save paths
-    if (params.fx_path.isNotEmpty())
+    // #region agent log
+    bool aiLocked = aiLockEnabled.load(std::memory_order_acquire);
+    dbgLog("applyNewRig:START", "apply new rig", "J",
+           0, 0, 0, aiLocked ? 1 : 0, 0, true);
+    // #endregion
+    
+    // Load NAM models and save paths (only if not locked)
+    if (params.fx_path.isNotEmpty() && !aiLocked)
     {
-        if (! pedal.loadModel(juce::File(params.fx_path)))
+        juce::File fxFile(params.fx_path);
+        bool fileExists = fxFile.existsAsFile();
+        // #region agent log
+        dbgLog("applyNewRig:PEDAL_FILE", "pedal file check", "J",
+               0, 0, 0, fileExists ? 1 : 0, 0, true);
+        // #endregion
+        
+        // #region agent log
+        juce::String fxPathStr = fxFile.getFullPathName();
+        dbgLog("applyNewRig:PEDAL_LOAD_START", "pedal load start", "J",
+               0, 0, 0, fxPathStr.length(), 0, true);
+        // #endregion
+        
+        if (! pedal.loadModel(fxFile))
+        {
             DBG("Failed to load pedal model: " + params.fx_path);
+            // #region agent log
+            dbgLog("applyNewRig:PEDAL_FAIL", "pedal load failed", "J", 0, 0, 0, 0, 0, true);
+            // #endregion
+        }
         else
         {
             currentFxPath = params.fx_path;
+            bool isLoaded = pedal.isModelLoaded();
             DBG("Loaded pedal model: " + pedal.getModelName());
+            // #region agent log
+            dbgLog("applyNewRig:PEDAL_OK", "pedal loaded", "J",
+                   0, 0, 0, isLoaded ? 1 : 0, 0, true);
+            // #endregion
         }
     }
-
-    if (params.amp_path.isNotEmpty())
+    else if (aiLocked)
     {
-        if (! amp.loadModel(juce::File(params.amp_path)))
+        // #region agent log
+        dbgLog("applyNewRig:PEDAL_SKIP", "pedal skip (lock)", "J", 0, 0, 0, 0, 0, true);
+        // #endregion
+    }
+    else
+    {
+        // #region agent log
+        dbgLog("applyNewRig:PEDAL_EMPTY", "pedal path empty", "J", 0, 0, 0, 0, 0, true);
+        // #endregion
+    }
+
+    if (params.amp_path.isNotEmpty() && !aiLocked)
+    {
+        juce::File ampFile(params.amp_path);
+        bool fileExists = ampFile.existsAsFile();
+        // #region agent log
+        dbgLog("applyNewRig:AMP_FILE", "amp file check", "J",
+               0, 0, 0, fileExists ? 1 : 0, 0, true);
+        // #endregion
+        
+        // #region agent log
+        juce::String ampPathStr = ampFile.getFullPathName();
+        dbgLog("applyNewRig:AMP_LOAD_START", "amp load start", "J",
+               0, 0, 0, ampPathStr.length(), 0, true);
+        // #endregion
+        
+        if (! amp.loadModel(ampFile))
+        {
             DBG("Failed to load amp model: " + params.amp_path);
+            // #region agent log
+            dbgLog("applyNewRig:AMP_FAIL", "amp load failed", "J", 0, 0, 0, 0, 0, true);
+            // #endregion
+        }
         else
         {
             currentAmpPath = params.amp_path;
+            bool isLoaded = amp.isModelLoaded();
             DBG("Loaded amp model: " + amp.getModelName());
+            // #region agent log
+            dbgLog("applyNewRig:AMP_OK", "amp loaded", "J",
+                   0, 0, 0, isLoaded ? 1 : 0, 0, true);
+            // #endregion
         }
     }
+    else if (aiLocked)
+    {
+        // #region agent log
+        dbgLog("applyNewRig:AMP_SKIP", "amp skip (lock)", "J", 0, 0, 0, 0, 0, true);
+        // #endregion
+    }
+    else
+    {
+        // #region agent log
+        dbgLog("applyNewRig:AMP_EMPTY", "amp path empty", "J", 0, 0, 0, 0, 0, true);
+        // #endregion
+    }
 
-    // Load IR and save path
-    if (params.ir_path.isNotEmpty())
+    // Load IR and save path (only if not locked)
+    if (params.ir_path.isNotEmpty() && !cabLockEnabled.load(std::memory_order_acquire))
     {
         if (! loadIR(juce::File(params.ir_path)))
             DBG("Failed to load IR: " + params.ir_path);
@@ -482,6 +893,12 @@ void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
             p->setValueNotifyingHost(p->convertTo0to1(value));
     };
 
+    auto setBoolParam = [this](const juce::String& id, bool value)
+    {
+        if (auto* p = apvts.getParameter(id))
+            p->setValueNotifyingHost(value ? 1.0f : 0.0f);
+    };
+
     setParam("inputGain",      params.input_gain_db);
     setParam("preEqGainDb",    params.pre_eq_gain_db);
     setParam("preEqFreqHz",    params.pre_eq_freq_hz);
@@ -489,7 +906,14 @@ void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
     setParam("reverbRoomSize", params.reverb_room_size);
     setParam("delayTimeMs",    params.delay_time_ms);
     setParam("delayMix",       params.delay_mix);
-    setParam("finalEqGainDb",  params.final_eq_gain_db);
+    setParam("hpfFreq",        params.hpf_freq);
+    setParam("lpfFreq",        params.lpf_freq);
+    setBoolParam("aiLock",     params.ai_lock);
+    setBoolParam("cabLock",    params.cab_lock);
+
+    // Update lock states
+    aiLockEnabled.store(params.ai_lock, std::memory_order_release);
+    cabLockEnabled.store(params.cab_lock, std::memory_order_release);
 }
 
 //==============================================================================

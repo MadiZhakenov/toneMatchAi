@@ -252,8 +252,9 @@ class ToneOptimizer:
         """
         self.test_duration_sec = test_duration_sec
         self.max_iterations = max_iterations
-        self.ir_folder = ir_folder
-        self.nam_folder = nam_folder
+        # Ensure all paths are absolute - critical for plugin environment where working directory may vary
+        self.ir_folder = os.path.normpath(os.path.abspath(ir_folder))
+        self.nam_folder = os.path.normpath(os.path.abspath(nam_folder))
         self.max_models_to_test = max_models_to_test
         self.selected_models_keywords = selected_models_keywords or []
         self.nam_processor = NAMProcessor()
@@ -284,6 +285,8 @@ class ToneOptimizer:
         for filename in os.listdir(self.ir_folder):
             if filename.lower().endswith('.wav'):
                 ir_path = os.path.join(self.ir_folder, filename)
+                # Ensure absolute path
+                ir_path = os.path.normpath(os.path.abspath(ir_path))
                 ir_files.append(ir_path)
         
         if len(ir_files) == 0:
@@ -298,12 +301,13 @@ class ToneOptimizer:
         """Find .nam model files in the NAM folder, filtered by keywords if specified.
         
         Returns:
-            List of full paths to NAM files
+            List of full paths to NAM files (excluding WaveNet models)
             
         Note:
             If folder doesn't exist or contains no .nam files, returns empty list
             (allows graceful fallback to mock mode)
             If selected_models_keywords is set, only returns files matching those keywords
+            WaveNet models are excluded because NAM Core doesn't support them yet
         """
         if not os.path.exists(self.nam_folder):
             return []
@@ -315,16 +319,30 @@ class ToneOptimizer:
         
         for filename in os.listdir(self.nam_folder):
             if filename.lower().endswith('.nam'):
+                nam_path = os.path.join(self.nam_folder, filename)
+                # Ensure absolute path
+                nam_path = os.path.normpath(os.path.abspath(nam_path))
+                
+                # Filter out WaveNet models - check architecture in JSON
+                try:
+                    import json
+                    with open(nam_path, 'r', encoding='utf-8') as f:
+                        model_data = json.load(f)
+                        architecture = model_data.get('architecture', '').lower()
+                        if architecture == 'wavenet':
+                            continue  # Skip WaveNet models
+                except (json.JSONDecodeError, KeyError, IOError):
+                    # If we can't read the file, include it (might be valid)
+                    pass
+                
                 # If keywords are specified, filter by them
                 if keywords:
                     filename_upper = filename.upper()
                     # Check if any keyword is in the filename (case-insensitive)
                     if any(keyword.upper() in filename_upper for keyword in keywords):
-                        nam_path = os.path.join(self.nam_folder, filename)
                         nam_files.append(nam_path)
                 else:
-                    # No keywords specified, include all files
-                    nam_path = os.path.join(self.nam_folder, filename)
+                    # No keywords specified, include all files (except WaveNet, already filtered)
                     nam_files.append(nam_path)
         
         # Sort for consistency
@@ -655,7 +673,10 @@ class ToneOptimizer:
         if os.path.exists(self.nam_folder):
             for filename in os.listdir(self.nam_folder):
                 if filename.lower().endswith('.nam'):
-                    all_nam_files.append(os.path.join(self.nam_folder, filename))
+                    nam_path = os.path.join(self.nam_folder, filename)
+                    # Ensure absolute path
+                    nam_path = os.path.normpath(os.path.abspath(nam_path))
+                    all_nam_files.append(nam_path)
         
         print(f"  Total NAM models in library: {len(all_nam_files)}")
         

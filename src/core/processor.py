@@ -214,6 +214,14 @@ class ToneProcessor:
             ValueError: If input track is empty or invalid
             FileNotFoundError: If IR file doesn't exist
         """
+        # Ensure all file paths are absolute - critical for plugin environment
+        if nam_path:
+            nam_path = os.path.normpath(os.path.abspath(nam_path))
+        if fx_nam_path:
+            fx_nam_path = os.path.normpath(os.path.abspath(fx_nam_path))
+        if ir_path:
+            ir_path = os.path.normpath(os.path.abspath(ir_path))
+        
         if len(di_track.audio) == 0:
             raise ValueError("Cannot process empty audio track")
         
@@ -391,6 +399,50 @@ class ToneProcessor:
         # Start with audio copy
         audio_processed = di_track.audio.copy().astype(np.float32)
         
+        # #region agent log - DI track validation
+        # Determine log path dynamically
+        import json
+        import time
+        
+        # Use absolute path - always the same location
+        log_path = r"e:\Users\Desktop\toneMatchAi\.cursor\debug.log"
+        
+        # Also print to stderr for immediate visibility
+        print(f"[DEBUG] processor.py:process_with_custom_rig_and_post_fx START", file=sys.stderr, flush=True)
+        print(f"[DEBUG] DI track: len={len(di_track.audio)}, sr={di_track.sr}, min={np.min(di_track.audio) if len(di_track.audio) > 0 else 0}, max={np.max(di_track.audio) if len(di_track.audio) > 0 else 0}", file=sys.stderr, flush=True)
+        
+        try:
+            # Ensure directory exists
+            log_dir = os.path.dirname(log_path)
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+            
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:DI_START",
+                    "message": "Starting processing - DI track validation",
+                    "data": {
+                        "di_len": len(di_track.audio),
+                        "di_min": float(np.min(di_track.audio)) if len(di_track.audio) > 0 else 0.0,
+                        "di_max": float(np.max(di_track.audio)) if len(di_track.audio) > 0 else 0.0,
+                        "di_rms": float(np.sqrt(np.mean(di_track.audio**2))) if len(di_track.audio) > 0 else 0.0,
+                        "di_all_zero": bool(np.all(di_track.audio == 0)) if len(di_track.audio) > 0 else True,
+                        "di_sr": int(di_track.sr),
+                        "input_gain_db": gain_params.get('input_gain_db', 0.0)
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # CRITICAL: Validate DI track is not zero
+        if len(audio_processed) > 0 and np.all(audio_processed == 0):
+            error_msg = f"DI track is all zeros! Cannot process. Track length: {len(audio_processed)}, SR: {di_track.sr}"
+            print(f"[PROCESSOR ERROR] {error_msg}", file=sys.stderr, flush=True)
+            raise ValueError(error_msg)
+        
         # Step 0: Pre-EQ (Peak Filter) - Applied at the very beginning for tone shaping
         if abs(pre_eq_gain_db) > 0.01:  # Only apply if gain is significant
             # Use Q=2.0 for reasonable bandwidth (similar to typical guitar EQ)
@@ -404,8 +456,64 @@ class ToneProcessor:
         
         # Step 1: Input Gain
         input_gain_db = gain_params.get('input_gain_db', 0.0)
+        
+        # CRITICAL: Clamp input gain to prevent making audio zero
+        if input_gain_db < -60.0:
+            print(f"[PROCESSOR WARNING] Input gain {input_gain_db} dB is too low, clamping to -60 dB to prevent zero audio", file=sys.stderr, flush=True)
+            input_gain_db = -60.0
+        
         input_gain_linear = self._db_to_linear(input_gain_db)
+        
+        # #region agent log - Before input gain
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:BEFORE_INPUT_GAIN",
+                    "message": "Before input gain",
+                    "data": {
+                        "audio_len": len(audio_processed),
+                        "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
+                        "input_gain_db": input_gain_db,
+                        "input_gain_linear": input_gain_linear
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
         audio_processed = audio_processed * input_gain_linear
+        
+        # #region agent log - After input gain
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:AFTER_INPUT_GAIN",
+                    "message": "After input gain",
+                    "data": {
+                        "audio_len": len(audio_processed),
+                        "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
+                        "audio_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # CRITICAL: Check if input gain made audio zero
+        if len(audio_processed) > 0 and np.all(audio_processed == 0) and len(di_track.audio) > 0 and not np.all(di_track.audio == 0):
+            error_msg = f"Input gain {input_gain_db} dB made audio zero! Original RMS: {np.sqrt(np.mean(di_track.audio**2)):.6f}"
+            print(f"[PROCESSOR ERROR] {error_msg}", file=sys.stderr, flush=True)
+            raise ValueError(error_msg)
+        
+        print(f"[PROCESSOR] After input gain: len={len(audio_processed)}, min={np.min(audio_processed) if len(audio_processed) > 0 else 0:.6f}, max={np.max(audio_processed) if len(audio_processed) > 0 else 0:.6f}, rms={np.sqrt(np.mean(audio_processed**2)) if len(audio_processed) > 0 else 0:.6f}, all_zero={np.all(audio_processed == 0) if len(audio_processed) > 0 else True}", file=sys.stderr, flush=True)
         
         # Step 2: FX NAM (DS1) - Hardcoded
         try:
@@ -599,6 +707,14 @@ class ToneProcessor:
             ValueError: If input track is empty or invalid
             FileNotFoundError: If NAM/IR files don't exist
         """
+        # Ensure all file paths are absolute - critical for plugin environment
+        if fx_nam_path:
+            fx_nam_path = os.path.normpath(os.path.abspath(fx_nam_path))
+        if amp_nam_path:
+            amp_nam_path = os.path.normpath(os.path.abspath(amp_nam_path))
+        if ir_path:
+            ir_path = os.path.normpath(os.path.abspath(ir_path))
+        
         if len(di_track.audio) == 0:
             raise ValueError("Cannot process empty audio track")
         
@@ -622,9 +738,52 @@ class ToneProcessor:
         # Start with audio copy
         audio_processed = di_track.audio.copy().astype(np.float32)
         
+        # Initialize logging
+        import sys
+        import json
+        import time
+        log_path = r"e:\Users\Desktop\toneMatchAi\.cursor\debug.log"
+        
+        # CRITICAL DEBUG: Print to stderr immediately (visible in PythonBridge output)
+        print(f"[PROCESSOR] START: DI len={len(di_track.audio)}, sr={di_track.sr}, min={np.min(di_track.audio) if len(di_track.audio) > 0 else 0:.6f}, max={np.max(di_track.audio) if len(di_track.audio) > 0 else 0:.6f}, rms={np.sqrt(np.mean(di_track.audio**2)) if len(di_track.audio) > 0 else 0:.6f}", file=sys.stderr, flush=True)
+        print(f"[PROCESSOR] Input gain: {gain_params.get('input_gain_db', 0.0)} dB", file=sys.stderr, flush=True)
+        print(f"[PROCESSOR] AMP: {amp_nam_path if amp_nam_path else 'None'}", file=sys.stderr, flush=True)
+        print(f"[PROCESSOR] IR: {ir_path}", file=sys.stderr, flush=True)
+        
+        # Log DI track validation
+        try:
+            log_dir = os.path.dirname(log_path)
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:DI_START",
+                    "message": "Starting processing - DI track validation",
+                    "data": {
+                        "di_len": len(di_track.audio),
+                        "di_min": float(np.min(di_track.audio)) if len(di_track.audio) > 0 else 0.0,
+                        "di_max": float(np.max(di_track.audio)) if len(di_track.audio) > 0 else 0.0,
+                        "di_rms": float(np.sqrt(np.mean(di_track.audio**2))) if len(di_track.audio) > 0 else 0.0,
+                        "di_all_zero": bool(np.all(di_track.audio == 0)) if len(di_track.audio) > 0 else True,
+                        "di_sr": int(di_track.sr),
+                        "input_gain_db": gain_params.get('input_gain_db', 0.0)
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        
+        # CRITICAL: Validate DI track is not zero
+        if len(audio_processed) > 0 and np.all(audio_processed == 0):
+            error_msg = f"DI track is all zeros! Cannot process. Track length: {len(audio_processed)}, SR: {di_track.sr}"
+            print(f"[PROCESSOR ERROR] {error_msg}", file=sys.stderr, flush=True)
+            raise ValueError(error_msg)
+        
         # Step 0: Pre-EQ (Peak Filter) - Applied at the very beginning for tone shaping
         if abs(pre_eq_gain_db) > 0.01:  # Only apply if gain is significant
             # Use Q=2.0 for reasonable bandwidth (similar to typical guitar EQ)
+            audio_before_pre_eq = audio_processed.copy()
             audio_processed = self._apply_peak_filter(
                 audio_processed,
                 center_hz=pre_eq_freq_hz,
@@ -632,64 +791,609 @@ class ToneProcessor:
                 q=2.0,
                 sr=di_track.sr
             )
+            # CRITICAL FIX: If Pre-EQ made audio zero, restore original
+            if len(audio_processed) > 0 and np.all(audio_processed == 0) and not np.all(audio_before_pre_eq == 0):
+                print(f"[PROCESSOR FIX] Pre-EQ made audio zero! Restoring original.", file=sys.stderr, flush=True)
+                audio_processed = audio_before_pre_eq.copy()
         
         # Step 1: Input Gain
         input_gain_db = gain_params.get('input_gain_db', 0.0)
         input_gain_linear = self._db_to_linear(input_gain_db)
+        
+        # #region agent log - Before input gain
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:BEFORE_INPUT_GAIN",
+                    "message": "Before input gain",
+                    "data": {
+                        "audio_len": len(audio_processed),
+                        "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
+                        "input_gain_db": input_gain_db,
+                        "input_gain_linear": input_gain_linear
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
         audio_processed = audio_processed * input_gain_linear
         
+        # #region agent log - After input gain
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:AFTER_INPUT_GAIN",
+                    "message": "After input gain",
+                    "data": {
+                        "audio_len": len(audio_processed),
+                        "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
+                        "audio_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # Save state after input gain for fallback
+        audio_after_input_gain = audio_processed.copy()
+        
+        # CRITICAL: Check if input gain made audio zero
+        if len(audio_processed) > 0 and np.all(audio_processed == 0) and len(di_track.audio) > 0 and not np.all(di_track.audio == 0):
+            print(f"ERROR: Input gain {input_gain_db} dB made audio zero! Original RMS: {np.sqrt(np.mean(di_track.audio**2)):.6f}")
+            # Restore original audio and apply minimal gain to prevent zero
+            audio_processed = di_track.audio.copy().astype(np.float32)
+            if input_gain_db < -60.0:
+                print(f"  Input gain too low ({input_gain_db} dB), clamping to -60 dB")
+                input_gain_db = -60.0
+                input_gain_linear = self._db_to_linear(input_gain_db)
+            audio_processed = audio_processed * input_gain_linear
+            audio_after_input_gain = audio_processed.copy()
+        
         # Step 2: FX NAM (Pedal/Booster) - Optional
-        if fx_nam_path:
+        if fx_nam_path and os.path.exists(fx_nam_path):
             try:
                 audio_processed = self.nam_processor.process_audio(
                     audio_processed,
                     fx_nam_path,
                     sample_rate=di_track.sr
                 )
+                # Validate after FX NAM - if invalid, skip FX (restore to after input gain)
+                if len(audio_processed) == 0 or np.all(np.isnan(audio_processed)) or np.all(audio_processed == 0):
+                    print(f"Warning: FX NAM produced invalid output, skipping FX")
+                    # Restore to state after input gain
+                    audio_processed = audio_after_input_gain.copy()
             except Exception as e:
-                print(f"Warning: FX NAM processing failed ({e}), continuing without FX")
+                print(f"Warning: FX NAM failed ({os.path.basename(fx_nam_path)}): {e}, skipping FX")
+                # Restore to state after input gain
+                audio_processed = audio_after_input_gain.copy()
+        
+        # Save state after FX (or input gain if no FX) for AMP fallback
+        audio_before_amp = audio_processed.copy()
+        
+        # CRITICAL FIX: If audio is zero before AMP, restore from DI with safe gain
+        if len(audio_processed) > 0 and np.all(audio_processed == 0) and len(di_track.audio) > 0 and not np.all(di_track.audio == 0):
+            print(f"[PROCESSOR FIX] Audio is zero before AMP NAM! Restoring from DI track.", file=sys.stderr, flush=True)
+            # Restore from DI with safe input gain (at least -60 dB)
+            safe_gain_db = max(input_gain_db, -60.0)
+            safe_gain_linear = self._db_to_linear(safe_gain_db)
+            audio_processed = di_track.audio.copy().astype(np.float32) * safe_gain_linear
+            audio_before_amp = audio_processed.copy()
+            print(f"[PROCESSOR FIX] Restored audio: len={len(audio_processed)}, rms={np.sqrt(np.mean(audio_processed**2)):.6f}", file=sys.stderr, flush=True)
         
         # Step 3: AMP NAM (Amplifier) - Optional
-        if amp_nam_path:
+        # #region agent log
+        try:
+            import json
+            import time
+            log_path = r"e:\Users\Desktop\toneMatchAi\.cursor\debug.log"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:AMP_BEFORE",
+                    "message": "Before AMP NAM processing",
+                    "data": {
+                        "audio_len": len(audio_processed),
+                        "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                        "audio_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True,
+                        "amp_nam_path": str(amp_nam_path) if amp_nam_path else "None",
+                        "amp_exists": os.path.exists(amp_nam_path) if amp_nam_path else False
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
+        if amp_nam_path and os.path.exists(amp_nam_path):
             try:
                 audio_processed = self.nam_processor.process_audio(
                     audio_processed,
                     amp_nam_path,
                     sample_rate=di_track.sr
                 )
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "location": "processor.py:AMP_AFTER",
+                            "message": "After AMP NAM processing",
+                            "data": {
+                                "result_len": len(audio_processed),
+                                "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                                "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                                "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "hypothesisId": "D"
+                        }) + "\n")
+                        f.flush()
+                except: pass
+                # #endregion
+                
+                # Validate after AMP NAM
+                if len(audio_processed) == 0 or np.all(np.isnan(audio_processed)) or np.all(audio_processed == 0):
+                    # Fallback to mock - restore to state before AMP
+                    print(f"[PROCESSOR WARNING] AMP NAM produced invalid output, using mock fallback", file=sys.stderr, flush=True)
+                    print(f"[PROCESSOR] Before mock: len={len(audio_before_amp)}, rms={np.sqrt(np.mean(audio_before_amp**2)) if len(audio_before_amp) > 0 else 0:.6f}", file=sys.stderr, flush=True)
+                    audio_processed = self._apply_mock_amp(audio_before_amp, di_track.sr)
+                    print(f"[PROCESSOR] After mock: len={len(audio_processed)}, rms={np.sqrt(np.mean(audio_processed**2)) if len(audio_processed) > 0 else 0:.6f}", file=sys.stderr, flush=True)
             except Exception as e:
-                print(f"Warning: AMP NAM processing failed ({e}), using mock fallback")
-                # Fallback to mock
-                self.nam_processor.set_mock_mode(True)
-                audio_processed = self.nam_processor.process_audio(
-                    audio_processed,
-                    "mock",
-                    sample_rate=di_track.sr
-                )
-                self.nam_processor.set_mock_mode(False)
+                # Any error - fallback to mock - restore to state before AMP
+                print(f"Warning: AMP NAM failed ({os.path.basename(amp_nam_path)}): {e}, using mock fallback")
+                audio_processed = self._apply_mock_amp(audio_before_amp, di_track.sr)
         else:
-            # Mock mode
-            self.nam_processor.set_mock_mode(True)
-            audio_processed = self.nam_processor.process_audio(
-                audio_processed,
-                "mock",
-                sample_rate=di_track.sr
-            )
-            self.nam_processor.set_mock_mode(False)
+            # No AMP model or file doesn't exist - use mock
+            audio_processed = self._apply_mock_amp(audio_before_amp, di_track.sr)
         
         # Step 4: IR - Cabinet simulation via Convolution
-        convolution = Convolution(impulse_response_filename=ir_path)
-        audio_processed = convolution(audio_processed, sample_rate=di_track.sr)
+        # #region agent log
+        import json
+        import time
+        log_path = r"e:\Users\Desktop\toneMatchAi\.cursor\debug.log"
+        try:
+            log_data = {
+                "location": "processor.py:IR_BEFORE",
+                "message": "Before IR convolution",
+                "data": {
+                    "ir_path": str(ir_path) if ir_path else "None",
+                    "ir_exists": os.path.exists(ir_path) if ir_path else False,
+                    "audio_len": len(audio_processed),
+                    "audio_dtype": str(audio_processed.dtype),
+                    "audio_sr": int(di_track.sr),
+                    "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                    "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
+                    "audio_has_nan": bool(np.any(np.isnan(audio_processed))),
+                    "audio_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                },
+                "timestamp": int(time.time() * 1000),
+                "hypothesisId": "D"
+            }
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_data, ensure_ascii=False) + "\n")
+                f.flush()
+        except Exception as log_e:
+            # Fallback: try simple print
+            print(f"[DEBUG] IR_BEFORE log failed: {log_e}")
+        # #endregion
+        
+        # Enhanced audio diagnostics before IR convolution
+        # Save original audio before IR for fallback (do this early)
+        audio_before_ir = audio_processed.copy()
+        
+        audio_is_empty = len(audio_processed) == 0
+        audio_is_all_zeros = len(audio_processed) > 0 and np.all(audio_processed == 0)
+        audio_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
+        audio_rms = float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 and not audio_has_nan else 0.0
+        
+        # If audio is empty or all zeros, skip IR convolution
+        if audio_is_empty or audio_is_all_zeros:
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "location": "processor.py:IR_SKIP_ZERO",
+                        "message": "Skipping IR convolution - input is empty or all zeros",
+                        "data": {
+                            "audio_len": len(audio_processed),
+                            "audio_is_empty": audio_is_empty,
+                            "audio_is_all_zeros": audio_is_all_zeros,
+                            "audio_has_nan": audio_has_nan,
+                            "audio_rms": audio_rms,
+                            "ir_path": str(ir_path) if ir_path else "None"
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": "D"
+                    }) + "\n")
+                    f.flush()
+            except: pass
+            # #endregion
+            print(f"[PROCESSOR ERROR] Audio buffer is {'empty' if audio_is_empty else 'all zeros'} before IR convolution, skipping IR", file=sys.stderr, flush=True)
+            print(f"[PROCESSOR] Audio length: {len(audio_processed)}, RMS: {audio_rms:.6f}, Has NaN: {audio_has_nan}", file=sys.stderr, flush=True)
+            # This is a critical error - audio shouldn't be zero!
+            raise ValueError(f"Audio is {'empty' if audio_is_empty else 'all zeros'} before IR convolution! This indicates AMP NAM or processing chain failed.")
+        elif audio_has_nan:
+            # Audio has NaN values - try to fix by replacing with zeros
+            print(f"Warning: Audio buffer contains NaN values before IR convolution, replacing with zeros")
+            audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+            # Continue with fixed audio
+        elif not os.path.exists(ir_path):
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "location": "processor.py:IR_FILE_NOT_FOUND",
+                        "message": "IR file not found",
+                        "data": {"ir_path": ir_path},
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": "A"
+                    }) + "\n")
+                    f.flush()
+            except: pass
+            # #endregion
+            print(f"Warning: IR file not found: {ir_path}, skipping IR")
+            # Skip IR - audio_processed remains unchanged, continue to post-processing
+        else:
+            # IR file exists and audio is valid - proceed with convolution
+            # audio_before_ir already saved above
+            
+            # First, validate IR file
+            try:
+                ir_file_size = os.path.getsize(ir_path)
+                if ir_file_size == 0:
+                    print(f"Warning: IR file is empty: {ir_path}, skipping IR")
+                    # Skip IR - audio_processed remains unchanged, continue to post-processing
+                    pass  # Will skip to post-processing
+                else:
+                    # Try to read IR file to validate it
+                    try:
+                        ir_test_audio, ir_test_sr = sf.read(ir_path, frames=1)
+                        if len(ir_test_audio) == 0:
+                            print(f"Warning: IR file contains no audio data: {ir_path}, skipping IR")
+                            # Skip IR - audio_processed remains unchanged
+                            pass  # Will skip to post-processing
+                        else:
+                            # IR file is valid - proceed with convolution
+                            # (rest of code continues below)
+            except Exception as ir_validation_error:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "location": "processor.py:IR_VALIDATION_FAILED",
+                            "message": "IR file validation failed",
+                            "data": {
+                                "ir_path": str(ir_path),
+                                "error": str(ir_validation_error)
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "hypothesisId": "A"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                print(f"Warning: IR file validation failed ({ir_validation_error}), skipping IR and continuing")
+                # Skip IR - audio_processed remains unchanged
+            
+            try:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "location": "processor.py:IR_PEDALBOARD_START",
+                            "message": "Starting pedalboard.Convolution",
+                            "data": {
+                                "ir_path": ir_path,
+                                "ir_file_size": ir_file_size,
+                                "audio_len": len(audio_processed),
+                                "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
+                                "sample_rate": int(di_track.sr)
+                            },
+                            "timestamp": int(__import__("time").time() * 1000),
+                            "hypothesisId": "C"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                
+                convolution = Convolution(impulse_response_filename=ir_path)
+                audio_processed = convolution(audio_processed, sample_rate=di_track.sr)
+                
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "location": "processor.py:IR_PEDALBOARD_SUCCESS",
+                            "message": "pedalboard.Convolution succeeded",
+                            "data": {
+                                "result_len": len(audio_processed),
+                                "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0,
+                                "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0,
+                                "result_has_nan": bool(np.any(np.isnan(audio_processed))),
+                                "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                            },
+                            "timestamp": int(__import__("time").time() * 1000),
+                            "hypothesisId": "C"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                
+                # Validate after IR
+                result_is_empty = len(audio_processed) == 0
+                result_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
+                result_is_all_zero = len(audio_processed) > 0 and np.all(audio_processed == 0)
+                
+                if result_is_empty or result_has_nan or result_is_all_zero:
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "location": "processor.py:IR_PEDALBOARD_INVALID",
+                                "message": "pedalboard.Convolution produced invalid output",
+                                "data": {
+                                    "len": len(audio_processed),
+                                    "has_nan": result_has_nan,
+                                    "all_zero": result_is_all_zero,
+                                    "is_empty": result_is_empty,
+                                    "ir_path": str(ir_path)
+                                },
+                                "timestamp": int(__import__("time").time() * 1000),
+                                "hypothesisId": "D"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    # Try to fix NaN values before raising error
+                    if result_has_nan and not result_is_empty:
+                        print(f"Warning: IR convolution produced NaN values, attempting to fix...")
+                        audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+                        # Re-check after fix
+                        if len(audio_processed) > 0 and not np.all(audio_processed == 0):
+                            print(f"  Fixed NaN values, continuing with processed audio")
+                        else:
+                            # If still invalid, restore original audio before IR (skip IR)
+                            print(f"  Warning: IR convolution failed after NaN fix, using pre-IR audio as fallback")
+                            audio_processed = audio_before_ir.copy()
+                    elif result_is_all_zero:
+                        # IR produced all zeros - check if input was also zero
+                        input_was_zero = len(audio_before_ir) > 0 and np.all(audio_before_ir == 0)
+                        if input_was_zero:
+                            print(f"Warning: Input audio was all zeros before IR, skipping IR and using original")
+                            audio_processed = audio_before_ir  # Restore original (which is zeros, but at least consistent)
+                        else:
+                            print(f"Warning: IR convolution produced all zeros from non-zero input")
+                            print(f"  This indicates a problem with the IR file or convolution")
+                            print(f"  Attempting to use pre-IR audio as fallback")
+                            audio_processed = audio_before_ir  # Use pre-IR audio as fallback
+                    else:
+                        # Empty result - restore original
+                        print(f"Warning: IR convolution produced empty result, using pre-IR audio")
+                        audio_processed = audio_before_ir  # Restore original
+            except Exception as e:
+                # #region agent log
+                try:
+                    import traceback
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "location": "processor.py:IR_PEDALBOARD_ERROR",
+                            "message": "pedalboard.Convolution failed",
+                            "data": {
+                                "error": str(e),
+                                "error_type": type(e).__name__,
+                                "traceback": traceback.format_exc()[:500]
+                            },
+                            "timestamp": int(__import__("time").time() * 1000),
+                            "hypothesisId": "C"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                
+                # Fallback to scipy convolution if pedalboard fails
+                print(f"Warning: pedalboard.Convolution failed ({e}), using scipy fallback")
+                try:
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "location": "processor.py:IR_SCIPY_START",
+                                "message": "Starting scipy fallback",
+                                "data": {"ir_path": ir_path},
+                                "timestamp": int(__import__("time").time() * 1000),
+                                "hypothesisId": "F"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
+                    # Import scipy.signal here to ensure it's available (already imported at top, but ensure scope)
+                    from scipy import signal as scipy_signal_fallback
+                    
+                    # Restore original audio before IR for scipy fallback
+                    audio_processed = audio_before_ir.copy()
+                    
+                    # Validate input audio before scipy convolution
+                    if len(audio_processed) == 0:
+                        print("Warning: Cannot apply scipy convolution: input audio is empty, using pre-IR audio")
+                        audio_processed = audio_before_ir.copy()
+                        raise ValueError("Input audio empty")  # Re-raise to trigger outer handler
+                    if np.any(np.isnan(audio_processed)):
+                        print("Warning: Input audio has NaN values, fixing before scipy convolution")
+                        audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+                    
+                    # Load IR file
+                    try:
+                        ir_audio, ir_sr = sf.read(ir_path)
+                    except Exception as ir_load_error:
+                        print(f"Warning: Failed to load IR file for scipy fallback ({ir_load_error}), using pre-IR audio")
+                        audio_processed = audio_before_ir.copy()
+                        raise  # Re-raise to trigger outer exception handler
+                    
+                    if len(ir_audio) == 0:
+                        print(f"Warning: IR file is empty: {ir_path}, using pre-IR audio")
+                        audio_processed = audio_before_ir.copy()
+                        raise ValueError("IR file is empty")  # Re-raise to trigger outer handler
+                    
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "location": "processor.py:IR_SCIPY_LOADED",
+                                "message": "IR file loaded with scipy",
+                                "data": {
+                                    "ir_sr": int(ir_sr),
+                                    "ir_len": len(ir_audio),
+                                    "ir_shape": list(ir_audio.shape),
+                                    "ir_dtype": str(ir_audio.dtype),
+                                    "needs_resample": ir_sr != di_track.sr,
+                                    "input_audio_len": len(audio_processed),
+                                    "input_audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0
+                                },
+                                "timestamp": int(__import__("time").time() * 1000),
+                                "hypothesisId": "B"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
+                    if len(ir_audio.shape) > 1:
+                        ir_audio = ir_audio[:, 0]  # Use first channel if stereo
+                    
+                    # Resample IR if needed
+                    if ir_sr != di_track.sr:
+                        num_samples = int(len(ir_audio) * di_track.sr / ir_sr)
+                        if num_samples > 0:
+                            ir_audio = scipy_signal_fallback.resample(ir_audio, num_samples)
+                        else:
+                            print(f"Warning: Invalid resample target size: {num_samples}, using pre-IR audio")
+                            audio_processed = audio_before_ir.copy()
+                            raise ValueError("Invalid resample")  # Re-raise to trigger outer handler
+                    
+                    # Apply convolution
+                    if len(ir_audio) == 0:
+                        print(f"Warning: IR audio is empty after processing, using pre-IR audio")
+                        audio_processed = audio_before_ir.copy()
+                        raise ValueError("IR audio empty")  # Re-raise to trigger outer handler
+                    
+                    audio_processed = scipy_signal_fallback.fftconvolve(audio_processed, ir_audio, mode='same')
+                    
+                    # Ensure result is valid numpy array
+                    if not isinstance(audio_processed, np.ndarray):
+                        audio_processed = np.array(audio_processed)
+                    
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "location": "processor.py:IR_SCIPY_SUCCESS",
+                                "message": "scipy convolution succeeded",
+                                "data": {
+                                    "result_len": len(audio_processed),
+                                    "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0,
+                                    "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0,
+                                    "result_has_nan": bool(np.any(np.isnan(audio_processed))),
+                                    "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                                },
+                                "timestamp": int(__import__("time").time() * 1000),
+                                "hypothesisId": "F"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
+                    # Validate after scipy convolution
+                    scipy_result_is_empty = len(audio_processed) == 0
+                    scipy_result_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
+                    scipy_result_is_all_zero = len(audio_processed) > 0 and np.all(audio_processed == 0)
+                    
+                    if scipy_result_is_empty or scipy_result_has_nan or scipy_result_is_all_zero:
+                        # #region agent log
+                        try:
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(json.dumps({
+                                    "location": "processor.py:IR_SCIPY_INVALID",
+                                    "message": "scipy convolution produced invalid output",
+                                    "data": {
+                                        "len": len(audio_processed),
+                                        "has_nan": scipy_result_has_nan,
+                                        "all_zero": scipy_result_is_all_zero,
+                                        "is_empty": scipy_result_is_empty,
+                                        "ir_path": str(ir_path)
+                                    },
+                                    "timestamp": int(__import__("time").time() * 1000),
+                                    "hypothesisId": "F"
+                                }) + "\n")
+                        except: pass
+                        # #endregion
+                        # Try to fix NaN values before raising error
+                        if scipy_result_has_nan and not scipy_result_is_empty:
+                            print(f"Warning: Scipy convolution produced NaN values, attempting to fix...")
+                            audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+                            # Re-check after fix
+                            if len(audio_processed) > 0 and not np.all(audio_processed == 0):
+                                print(f"  Fixed NaN values, continuing with processed audio")
+                            else:
+                                print(f"  Warning: Scipy convolution failed, using pre-IR audio as fallback")
+                                audio_processed = audio_before_ir.copy()
+                        elif scipy_result_is_all_zero:
+                            print(f"Warning: Scipy convolution produced all zeros, using pre-IR audio as fallback")
+                            audio_processed = audio_before_ir.copy()
+                        else:
+                            print(f"Warning: Scipy convolution produced empty result, using pre-IR audio as fallback")
+                            audio_processed = audio_before_ir.copy()
+                except Exception as scipy_e:
+                    # #region agent log
+                    try:
+                        import traceback
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "location": "processor.py:IR_SCIPY_ERROR",
+                                "message": "scipy fallback also failed",
+                                "data": {
+                                    "pedalboard_error": str(e),
+                                    "scipy_error": str(scipy_e),
+                                    "scipy_error_type": type(scipy_e).__name__,
+                                    "traceback": traceback.format_exc()[:500]
+                                },
+                                "timestamp": int(__import__("time").time() * 1000),
+                                "hypothesisId": "F"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    # Both failed - use pre-IR audio as final fallback
+                    print(f"Warning: Both pedalboard and scipy IR convolution failed. Using pre-IR audio as fallback.")
+                    print(f"  Pedalboard error: {e}")
+                    print(f"  Scipy error: {scipy_e}")
+                    audio_processed = audio_before_ir.copy()
+                    # Continue with pre-IR audio - don't raise error
         
         # Step 5: Delay (Post-FX parameter)
         if DELAY_AVAILABLE:
-            delay_time_seconds = delay_time_ms / 1000.0  # Convert ms to seconds
-            delay = Delay(delay_seconds=delay_time_seconds, mix=delay_mix)
-            audio_processed = delay(audio_processed, sample_rate=di_track.sr)
+            try:
+                delay_time_seconds = delay_time_ms / 1000.0  # Convert ms to seconds
+                delay = Delay(delay_seconds=delay_time_seconds, mix=delay_mix)
+                audio_processed = delay(audio_processed, sample_rate=di_track.sr)
+                # Validate after Delay
+                if len(audio_processed) == 0 or np.all(np.isnan(audio_processed)):
+                    raise ValueError("Audio buffer is empty or invalid after Delay processing")
+            except ValueError:
+                raise  # Re-raise ValueError as-is
+            except Exception as e:
+                print(f"Warning: Delay processing failed ({e}), continuing without delay")
         
         # Step 6: Reverb (Post-FX parameter)
-        reverb = Reverb(room_size=reverb_room_size, wet_level=reverb_wet)
-        audio_processed = reverb(audio_processed, sample_rate=di_track.sr)
+        try:
+            reverb = Reverb(room_size=reverb_room_size, wet_level=reverb_wet)
+            audio_processed = reverb(audio_processed, sample_rate=di_track.sr)
+            # Validate after Reverb
+            if len(audio_processed) == 0 or np.all(np.isnan(audio_processed)):
+                raise ValueError("Audio buffer is empty or invalid after Reverb processing")
+        except ValueError:
+            raise  # Re-raise ValueError as-is
+        except Exception as e:
+            raise ValueError(f"Reverb processing failed: {e}")
         
         # Step 7: Final Match EQ with gain adjustment (Post-FX parameter) - AGGRESSIVE MODE
         if ref_track is not None:
@@ -809,6 +1513,103 @@ class ToneProcessor:
             sr=di_track.sr,
             name=f"custom_rig_{di_track.name}"
         )
+    
+    def _apply_mock_amp(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Apply mock amp processing (simple distortion fallback).
+        
+        This is a guaranteed-to-work fallback when NAM models fail.
+        
+        Args:
+            audio: Input audio array
+            sample_rate: Sample rate
+            
+        Returns:
+            Processed audio array (never empty, never NaN)
+        """
+        # #region agent log
+        import json
+        import time
+        log_path = r"e:\Users\Desktop\toneMatchAi\.cursor\debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "location": "processor.py:MOCK_AMP_BEFORE",
+                    "message": "Before mock amp processing",
+                    "data": {
+                        "audio_len": len(audio),
+                        "audio_min": float(np.min(audio)) if len(audio) > 0 else 0.0,
+                        "audio_max": float(np.max(audio)) if len(audio) > 0 else 0.0,
+                        "audio_all_zero": bool(np.all(audio == 0)) if len(audio) > 0 else True
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "hypothesisId": "D"
+                }) + "\n")
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # If input is all zeros, just return it (no point processing)
+        if len(audio) == 0 or np.all(audio == 0):
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "location": "processor.py:MOCK_AMP_ZERO_INPUT",
+                        "message": "Mock amp: input is all zeros, returning as-is",
+                        "data": {},
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": "D"
+                    }) + "\n")
+                    f.flush()
+            except: pass
+            # #endregion
+            return audio.astype(np.float32)
+        
+        try:
+            from pedalboard import Distortion
+            distortion = Distortion(drive_db=18.0)
+            processed = distortion(audio, sample_rate=sample_rate)
+            
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "location": "processor.py:MOCK_AMP_AFTER",
+                        "message": "After mock amp processing",
+                        "data": {
+                            "result_len": len(processed),
+                            "result_min": float(np.min(processed)) if len(processed) > 0 else 0.0,
+                            "result_max": float(np.max(processed)) if len(processed) > 0 else 0.0,
+                            "result_all_zero": bool(np.all(processed == 0)) if len(processed) > 0 else True
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": "D"
+                    }) + "\n")
+                f.flush()
+            except: pass
+            # #endregion
+            
+            # Ensure we have valid output
+            if len(processed) == 0 or np.all(np.isnan(processed)) or np.all(processed == 0):
+                # Ultimate fallback - just return input with slight gain
+                return (audio * 1.5).astype(np.float32)
+            return processed.astype(np.float32)
+        except Exception as e:
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "location": "processor.py:MOCK_AMP_ERROR",
+                        "message": "Mock amp distortion failed",
+                        "data": {"error": str(e)},
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": "D"
+                    }) + "\n")
+                    f.flush()
+            except: pass
+            # #endregion
+            # If even distortion fails, just return input with gain
+            return (audio * 1.5).astype(np.float32)
     
     def _db_to_linear(self, db: float) -> float:
         """Convert dB to linear gain.
