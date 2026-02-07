@@ -1,0 +1,24 @@
+{
+  "name": "Init",
+  "rig": {
+    "fx_nam": "",
+    "amp_nam": "",
+    "ir": "",
+    "fx_nam_path": "",
+    "amp_nam_path": "",
+    "ir_path": ""
+  },
+  "params": {
+    "input_gain_db": 0.0,
+    "pre_eq_gain_db": 0.0,
+    "pre_eq_freq_hz": 800.0,
+    "reverb_wet": 0.0,
+    "reverb_room_size": 0.5,
+    "delay_time_ms": 100.0,
+    "delay_mix": 0.0,
+    "final_eq_gain_db": 0.0
+  },
+  "loss": 0.0
+}
+
+
