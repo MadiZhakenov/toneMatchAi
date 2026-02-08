@@ -26,7 +26,8 @@ struct RigParameters
     float reverb_room_size = 0.5f;
     float delay_time_ms = 100.0f;
     float delay_mix = 0.0f;
-    float input_gain_db = 0.0f;
+    float overdrive_db = 0.0f;      // Applied before NAM for overdrive
+    float input_gain_db = 0.0f;     // Applied at the end for volume
     float pre_eq_gain_db = 0.0f;
     float pre_eq_freq_hz = 800.0f;
     float hpf_freq = 70.0f;
@@ -192,7 +193,8 @@ private:
     juce::dsp::Reverb reverb_unit;
 
     // Gain stages
-    juce::dsp::Gain<float> input_gain;
+    juce::dsp::Gain<float> overdrive_gain;  // Applied before NAM for overdrive
+    juce::dsp::Gain<float> input_gain;      // Applied at the end for volume
 
     // Pre-EQ Filter
     juce::dsp::IIR::Filter<float> pre_eq_filter;
@@ -233,6 +235,10 @@ private:
     // Lock states for AI/CAB
     std::atomic<bool> aiLockEnabled { false };
     std::atomic<bool> cabLockEnabled { false };
+
+    // Flag to indicate if input should be normalized (set after Match Tone)
+    // When true, input signal is normalized to -1dB to match the normalized DI used during optimization
+    std::atomic<bool> inputNormalized { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToneMatchAudioProcessor)
 };

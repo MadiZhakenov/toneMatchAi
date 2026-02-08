@@ -193,7 +193,7 @@ class ToneProcessor:
         ref_track: Optional[AudioTrack] = None,
         fx_nam_path: Optional[str] = None
     ) -> AudioTrack:
-        """Process audio through full Pro chain: Input Gain -> FX NAM -> AMP NAM -> IR -> Final Match EQ -> Normalization.
+        """Process audio through full Pro chain: Overdrive -> FX NAM -> AMP NAM -> IR -> Final Match EQ -> Normalization.
         
         This is the complete professional processing chain with separate FX (pedal) and AMP models.
         FX NAM provides organic, nonlinear boost that the amplifier needs, replacing hardcoded Pre-EQ.
@@ -203,7 +203,7 @@ class ToneProcessor:
             nam_path: Path to AMP NAM model file (None for mock mode) - backward compatibility
             ir_path: Path to IR cabinet file
             gain_params: Dictionary with gain parameters:
-                - 'input_gain_db': float (input gain in dB)
+                - 'overdrive_db': float (overdrive gain in dB, applied before NAM) or 'input_gain_db' for backward compatibility
             ref_track: Reference track for final Match EQ (optional, if None, Match EQ is skipped)
             fx_nam_path: Path to FX NAM model file (pedal/booster, optional)
         
@@ -234,10 +234,11 @@ class ToneProcessor:
         # Start with audio copy
         audio_processed = di_track.audio.copy().astype(np.float32)
         
-        # Step 1: Input Gain
-        input_gain_db = gain_params.get('input_gain_db', 0.0)
-        input_gain_linear = self._db_to_linear(input_gain_db)
-        audio_processed = audio_processed * input_gain_linear
+        # Step 1: Overdrive (applied before NAM for overdrive/distortion)
+        # input_gain_db is interpreted as overdrive_db for backward compatibility
+        overdrive_db = gain_params.get('overdrive_db', gain_params.get('input_gain_db', 0.0))
+        overdrive_linear = self._db_to_linear(overdrive_db)
+        audio_processed = audio_processed * overdrive_linear
         
         # Step 2: FX NAM (Pedal/Booster) - Optional, replaces hardcoded Pre-EQ
         # This provides organic, nonlinear boost that the amplifier needs
@@ -454,29 +455,30 @@ class ToneProcessor:
                 sr=di_track.sr
             )
         
-        # Step 1: Input Gain
-        input_gain_db = gain_params.get('input_gain_db', 0.0)
+        # Step 1: Overdrive (applied before NAM for overdrive/distortion)
+        # input_gain_db is interpreted as overdrive_db for backward compatibility
+        overdrive_db = gain_params.get('overdrive_db', gain_params.get('input_gain_db', 0.0))
         
-        # CRITICAL: Clamp input gain to prevent making audio zero
-        if input_gain_db < -60.0:
-            print(f"[PROCESSOR WARNING] Input gain {input_gain_db} dB is too low, clamping to -60 dB to prevent zero audio", file=sys.stderr, flush=True)
-            input_gain_db = -60.0
+        # CRITICAL: Clamp overdrive to prevent making audio zero
+        if overdrive_db < -60.0:
+            print(f"[PROCESSOR WARNING] Overdrive {overdrive_db} dB is too low, clamping to -60 dB to prevent zero audio", file=sys.stderr, flush=True)
+            overdrive_db = -60.0
         
-        input_gain_linear = self._db_to_linear(input_gain_db)
+        overdrive_linear = self._db_to_linear(overdrive_db)
         
-        # #region agent log - Before input gain
+        # #region agent log - Before overdrive
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
-                    "location": "processor.py:BEFORE_INPUT_GAIN",
-                    "message": "Before input gain",
+                    "location": "processor.py:BEFORE_OVERDRIVE",
+                    "message": "Before overdrive",
                     "data": {
                         "audio_len": len(audio_processed),
                         "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
                         "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
                         "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
-                        "input_gain_db": input_gain_db,
-                        "input_gain_linear": input_gain_linear
+                        "overdrive_db": overdrive_db,
+                        "overdrive_linear": overdrive_linear
                     },
                     "timestamp": int(time.time() * 1000),
                     "hypothesisId": "D"
@@ -485,14 +487,14 @@ class ToneProcessor:
         except: pass
         # #endregion
         
-        audio_processed = audio_processed * input_gain_linear
+        audio_processed = audio_processed * overdrive_linear
         
-        # #region agent log - After input gain
+        # #region agent log - After overdrive
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
-                    "location": "processor.py:AFTER_INPUT_GAIN",
-                    "message": "After input gain",
+                    "location": "processor.py:AFTER_OVERDRIVE",
+                    "message": "After overdrive",
                     "data": {
                         "audio_len": len(audio_processed),
                         "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
@@ -507,13 +509,13 @@ class ToneProcessor:
         except: pass
         # #endregion
         
-        # CRITICAL: Check if input gain made audio zero
+        # CRITICAL: Check if overdrive made audio zero
         if len(audio_processed) > 0 and np.all(audio_processed == 0) and len(di_track.audio) > 0 and not np.all(di_track.audio == 0):
-            error_msg = f"Input gain {input_gain_db} dB made audio zero! Original RMS: {np.sqrt(np.mean(di_track.audio**2)):.6f}"
+            error_msg = f"Overdrive {overdrive_db} dB made audio zero! Original RMS: {np.sqrt(np.mean(di_track.audio**2)):.6f}"
             print(f"[PROCESSOR ERROR] {error_msg}", file=sys.stderr, flush=True)
             raise ValueError(error_msg)
         
-        print(f"[PROCESSOR] After input gain: len={len(audio_processed)}, min={np.min(audio_processed) if len(audio_processed) > 0 else 0:.6f}, max={np.max(audio_processed) if len(audio_processed) > 0 else 0:.6f}, rms={np.sqrt(np.mean(audio_processed**2)) if len(audio_processed) > 0 else 0:.6f}, all_zero={np.all(audio_processed == 0) if len(audio_processed) > 0 else True}", file=sys.stderr, flush=True)
+        print(f"[PROCESSOR] After overdrive: len={len(audio_processed)}, min={np.min(audio_processed) if len(audio_processed) > 0 else 0:.6f}, max={np.max(audio_processed) if len(audio_processed) > 0 else 0:.6f}, rms={np.sqrt(np.mean(audio_processed**2)) if len(audio_processed) > 0 else 0:.6f}, all_zero={np.all(audio_processed == 0) if len(audio_processed) > 0 else True}", file=sys.stderr, flush=True)
         
         # Step 2: FX NAM (DS1) - Hardcoded
         try:
@@ -796,23 +798,24 @@ class ToneProcessor:
                 print(f"[PROCESSOR FIX] Pre-EQ made audio zero! Restoring original.", file=sys.stderr, flush=True)
                 audio_processed = audio_before_pre_eq.copy()
         
-        # Step 1: Input Gain
-        input_gain_db = gain_params.get('input_gain_db', 0.0)
-        input_gain_linear = self._db_to_linear(input_gain_db)
+        # Step 1: Overdrive (applied before NAM for overdrive/distortion)
+        # input_gain_db is interpreted as overdrive_db for backward compatibility
+        overdrive_db = gain_params.get('overdrive_db', gain_params.get('input_gain_db', 0.0))
+        overdrive_linear = self._db_to_linear(overdrive_db)
         
-        # #region agent log - Before input gain
+        # #region agent log - Before overdrive
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
-                    "location": "processor.py:BEFORE_INPUT_GAIN",
-                    "message": "Before input gain",
+                    "location": "processor.py:BEFORE_OVERDRIVE",
+                    "message": "Before overdrive",
                     "data": {
                         "audio_len": len(audio_processed),
                         "audio_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0.0,
                         "audio_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0.0,
                         "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
-                        "input_gain_db": input_gain_db,
-                        "input_gain_linear": input_gain_linear
+                        "overdrive_db": overdrive_db,
+                        "overdrive_linear": overdrive_linear
                     },
                     "timestamp": int(time.time() * 1000),
                     "hypothesisId": "D"
@@ -821,7 +824,7 @@ class ToneProcessor:
         except: pass
         # #endregion
         
-        audio_processed = audio_processed * input_gain_linear
+        audio_processed = audio_processed * overdrive_linear
         
         # #region agent log - After input gain
         try:
@@ -851,11 +854,12 @@ class ToneProcessor:
             print(f"ERROR: Input gain {input_gain_db} dB made audio zero! Original RMS: {np.sqrt(np.mean(di_track.audio**2)):.6f}")
             # Restore original audio and apply minimal gain to prevent zero
             audio_processed = di_track.audio.copy().astype(np.float32)
-            if input_gain_db < -60.0:
-                print(f"  Input gain too low ({input_gain_db} dB), clamping to -60 dB")
-                input_gain_db = -60.0
-                input_gain_linear = self._db_to_linear(input_gain_db)
-            audio_processed = audio_processed * input_gain_linear
+            overdrive_db = gain_params.get('overdrive_db', gain_params.get('input_gain_db', 0.0))
+            if overdrive_db < -60.0:
+                print(f"  Overdrive too low ({overdrive_db} dB), clamping to -60 dB")
+                overdrive_db = -60.0
+            overdrive_linear = self._db_to_linear(overdrive_db)
+            audio_processed = audio_processed * overdrive_linear
             audio_after_input_gain = audio_processed.copy()
         
         # Step 2: FX NAM (Pedal/Booster) - Optional

@@ -65,8 +65,12 @@ ToneMatchAudioProcessor::createParameterLayout()
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("overdrive", 1), "Overdrive",
+        juce::NormalisableRange<float>(-12.0f, 40.0f, 0.1f), 0.0f, "dB"));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("inputGain", 1), "Input Gain",
-        juce::NormalisableRange<float>(-24.0f, 60.0f, 0.1f), 0.0f, "dB"));
+        juce::NormalisableRange<float>(-24.0f, 80.0f, 0.1f), 0.0f, "dB"));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("preEqGainDb", 1), "Pre-EQ Gain",
@@ -121,6 +125,9 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     currentBlockSize  = samplesPerBlock;
 
     // Prepare all DSP components
+    overdrive_gain.prepare(spec);
+    overdrive_gain.setRampDurationSeconds(0.02);
+    
     input_gain.prepare(spec);
     input_gain.setRampDurationSeconds(0.02);
 
@@ -160,6 +167,7 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
 
 void ToneMatchAudioProcessor::releaseResources()
 {
+    overdrive_gain.reset();
     input_gain.reset();
     pedal.reset();
     amp.reset();
@@ -272,14 +280,56 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     // #endregion
 
+    // ── Conditional input normalization (only after Match Tone) ────────────────
+    // Normalize input signal to -1dB only if inputNormalized flag is set.
+    // This flag is set after successful Match Tone, when gain was calculated for normalized DI.
+    // For normal operation (clean sound, manual presets), input is NOT normalized.
+    bool shouldNormalize = inputNormalized.load(std::memory_order_acquire);
+    // #region agent log
+    static int normalizationLogCount = 0;
+    if ((normalizationLogCount % 1000) == 0)
+    {
+        dbgLog("processBlock:NORMALIZATION_FLAG", "input normalization flag state", "N",
+               shouldNormalize ? 1.0f : 0.0f, inputDbMax, 0, 0, 0);
+        normalizationLogCount++;
+    }
+    // #endregion
+    
+    if (shouldNormalize)
+    {
+        if (inputMax > 1e-6f) // Only if not too quiet
+        {
+            const float targetLinear = juce::Decibels::decibelsToGain(-1.0f); // ≈ 0.89125
+            const float normalizeGain = targetLinear / inputMax;
+            
+            // Limit normalization gain to prevent excessive amplification (max +40dB)
+            const float maxNormalizeGainDb = 40.0f;
+            const float maxNormalizeGainLinear = juce::Decibels::decibelsToGain(maxNormalizeGainDb);
+            const float clampedNormalizeGain = juce::jmin(normalizeGain, maxNormalizeGainLinear);
+            
+            // Apply normalization to all channels
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.applyGain(ch, 0, numSamples, clampedNormalizeGain);
+            
+            // #region agent log
+            float normalizeGainDb = 20.0f * std::log10(clampedNormalizeGain);
+            float normalizedPeak = peakOf(buffer, 0);
+            float normalizedDb = peakToDb(normalizedPeak);
+            dbgLog("processBlock:INPUT_NORMALIZED", "input normalized to -1dB (after Match)", "N",
+                   inputDbMax, normalizeGainDb, normalizedDb, 1, 0);
+            // #endregion
+        }
+    }
+
     // Read parameters from APVTS (lock-free)
-    const float gainDb      = apvts.getRawParameterValue("inputGain")->load();
+    const float overdriveDb = apvts.getRawParameterValue("overdrive")->load();
+    const float gainDb       = apvts.getRawParameterValue("inputGain")->load();
     const float eqGainDb    = apvts.getRawParameterValue("preEqGainDb")->load();
     const float eqFreq      = apvts.getRawParameterValue("preEqFreqHz")->load();
     // #region agent log
-    float inputDbBeforeGain = peakToDb(peakOf(buffer, 0));
+    float inputDbBeforeOverdrive = peakToDb(peakOf(buffer, 0));
     dbgLog("processBlock:PARAMS", "params and input", "H",
-           gainDb, inputDbBeforeGain, eqGainDb, 0, 0);
+           overdriveDb, inputDbBeforeOverdrive, eqGainDb, 0, 0);
     // #endregion
     const float revWet      = apvts.getRawParameterValue("reverbWet")->load();
     const float revRoom     = apvts.getRawParameterValue("reverbRoomSize")->load();
@@ -290,17 +340,17 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     juce::dsp::AudioBlock<float> block(buffer);
 
-    // ── Stage 1: Input Gain ──────────────────────────────────────────────────
-    input_gain.setGainDecibels(gainDb);
+    // ── Stage 1: Overdrive (before NAM, for overdrive/distortion) ────────────
+    overdrive_gain.setGainDecibels(overdriveDb);
     {
         juce::dsp::ProcessContextReplacing<float> ctx(block);
-        input_gain.process(ctx);
+        overdrive_gain.process(ctx);
     }
     // #region agent log
-    float afterGainPeak = peakOf(buffer, 0);
-    float afterGainDb = peakToDb(afterGainPeak);
-    dbgLog("processBlock:AFTER_GAIN", "after input gain dB", "B",
-           afterGainDb, gainDb, afterGainPeak, 0, 0);
+    float afterOverdrivePeak = peakOf(buffer, 0);
+    float afterOverdriveDb = peakToDb(afterOverdrivePeak);
+    dbgLog("processBlock:AFTER_OVERDRIVE", "after overdrive dB", "O",
+           afterOverdriveDb, overdriveDb, afterOverdrivePeak, 0, 0);
     // #endregion
 
     // ── Stage 1b: Pre-EQ (parametric peak) ───────────────────────────────────
@@ -446,7 +496,20 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         reverb_unit.process(ctx);
     }
 
-    // ── Stage 7: Safety Limiter ──────────────────────────────────────────────
+    // ── Stage 7: Input Gain (volume control, applied at the end) ──────────────
+    input_gain.setGainDecibels(gainDb);
+    {
+        juce::dsp::ProcessContextReplacing<float> ctx(block);
+        input_gain.process(ctx);
+    }
+    // #region agent log
+    float afterVolumeGainPeak = peakOf(buffer, 0);
+    float afterVolumeGainDb = peakToDb(afterVolumeGainPeak);
+    dbgLog("processBlock:AFTER_VOLUME_GAIN", "after volume gain dB", "B",
+           afterVolumeGainDb, gainDb, afterVolumeGainPeak, 0, 0);
+    // #endregion
+
+    // ── Stage 8: Safety Limiter ──────────────────────────────────────────────
     // Prevent harsh digital clipping if gain is set too high
     for (int ch = 0; ch < numChannels; ++ch)
     {
@@ -487,7 +550,12 @@ void ToneMatchAudioProcessor::setStateInformation(const void* data, int sizeInBy
     auto parsed = juce::JSON::parse(json);
 
     if (parsed.isObject())
+    {
+        // Reset input normalization flag when loading state
+        // (state loading typically means manual preset change)
+        inputNormalized.store(false, std::memory_order_release);
         PresetManager::varToState(parsed, apvts, *this);
+    }
 }
 
 //==============================================================================
@@ -616,6 +684,37 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
         // Continue anyway - might be intentional
     }
 
+    // Normalize captured DI to -1dB before writing to file
+    // Python optimizer expects DI normalized to -1dB (as done in src/core/io.py)
+    // This ensures the optimizer calculates inputGainDb correctly for overdrive
+    if (peakLinear > 1e-6f) // Only if not too quiet
+    {
+        const float targetLinear = juce::Decibels::decibelsToGain(-1.0f); // ≈ 0.89125
+        const float normalizeGain = targetLinear / peakLinear;
+        
+        // Apply normalization to capturedDI
+        capturedDI.applyGain(0, 0, numCapturedSamples, normalizeGain);
+        
+        // Update capturedDIPeakDb to -1.0f (normalized level)
+        capturedDIPeakDb = -1.0f;
+        
+        float normalizeGainDb = 20.0f * std::log10(normalizeGain);
+        DBG("[ToneMatch] Normalized DI to -1dB (gain: " + 
+            juce::String(normalizeGainDb, 1) + " dB, original peak: " + 
+            juce::String(peakDb, 1) + " dB)");
+        dbgLog("triggerMatch:DI_NORMALIZED", "DI normalized to -1dB", "J", 
+               capturedDIPeakDb, normalizeGainDb, peakDb, 0, 0, true);
+    }
+    else
+    {
+        // If too quiet, use raw level but warn
+        capturedDIPeakDb = peakDb;
+        DBG("[ToneMatch] WARNING: DI too quiet to normalize, using raw level: " + 
+            juce::String(peakDb, 1) + " dB");
+        dbgLog("triggerMatch:DI_NOT_NORMALIZED", "DI too quiet, using raw level", "J", 
+               capturedDIPeakDb, peakLinear, 0, 0, 0, true);
+    }
+
     // Write captured mono DI to file (only the captured portion)
     dbgLog("triggerMatch:WRITING_DI", ("Writing DI to: " + diTemp.getFullPathName()).toRawUTF8(), "J", 0, 0, 0, numCapturedSamples, getSampleRate(), true);
     
@@ -630,9 +729,8 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
         
         DBG("[ToneMatch] Saved " + juce::String(numCapturedSamples) + " samples to " + diTemp.getFullPathName());
         
-        // Calculate peak of captured DI for gain compensation
-        capturedDIPeakDb = juce::Decibels::gainToDecibels(peakLinear, -100.0f);
-        DBG("[ToneMatch] Captured DI Peak: " + juce::String(capturedDIPeakDb, 1) + " dB");
+        // capturedDIPeakDb is already set during normalization (or raw level if too quiet)
+        // No need to recalculate here
         
         diFileWritten = true;
         dbgLog("triggerMatch:DI_WRITTEN", "DI file written successfully", "J", capturedDIPeakDb, 0, 0, numCapturedSamples, 0, true);
@@ -725,18 +823,59 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
     params.delay_mix = result.delayMix;
     
     // Apply gain compensation: result.inputGainDb is relative to a DI normalized to -1dB.
-    // We compensate for the difference between our captured DI peak and -1dB.
+    // After normalization in triggerMatch(), capturedDIPeakDb should be -1.0f,
+    // so compensationDb should be ~0.0f. We keep this for safety/backward compatibility.
     float compensationDb = -1.0f - capturedDIPeakDb;
-    // Limit compensation to a reasonable range (e.g. max +40dB) to avoid noise floor explosion
-    compensationDb = juce::jlimit(-12.0f, 40.0f, compensationDb);
+    // Limit compensation to a reasonable range (max +60dB) to allow sufficient gain for overdrive
+    compensationDb = juce::jlimit(-12.0f, 60.0f, compensationDb);
     
-    params.input_gain_db = result.inputGainDb + compensationDb;
+    // After DI normalization, capturedDIPeakDb should be -1.0f, so compensation should be 0.0f
+    // result.inputGainDb becomes overdrive_db (applied before NAM for overdrive)
+    params.overdrive_db = result.inputGainDb + compensationDb;
+    
+    // Input gain (volume) is set to 0dB after Match Tone
+    // User can adjust it manually if needed, but it doesn't affect overdrive
+    params.input_gain_db = 0.0f;
+    
+    // Verify compensation is correct (should be ~0dB after normalization)
+    if (std::abs(compensationDb) > 1.0f)
+    {
+        DBG("[ToneMatch] WARNING: Gain compensation is " + juce::String(compensationDb, 1) + 
+            " dB (expected ~0dB). DI peak was " + juce::String(capturedDIPeakDb, 1) + " dB.");
+    }
     params.pre_eq_gain_db = result.preEqGainDb;
     params.pre_eq_freq_hz = result.preEqFreqHz;
     
+    // #region agent log - Gain compensation diagnostics
+    // Log DI peak level, compensation, optimizer result, and final gain
+    // After normalization, capturedDIPeakDb should be -1.0f and compensationDb should be ~0.0f
+    dbgLog("onMatchComplete:GAIN_COMP", "gain compensation", "L",
+           capturedDIPeakDb, compensationDb, result.inputGainDb,
+           0, 0, true);
+    DBG("[ToneMatch] Gain compensation: DI peak=" + juce::String(capturedDIPeakDb, 1) + 
+        " dB, compensation=" + juce::String(compensationDb, 1) + 
+        " dB, optimizer gain=" + juce::String(result.inputGainDb, 1) + " dB");
+    dbgLog("onMatchComplete:OVERDRIVE_FINAL", "final overdrive", "L",
+           params.overdrive_db, 0, 0, 0, 0, true);
+    DBG("[ToneMatch] Final overdrive: " + juce::String(params.overdrive_db, 1) + " dB");
+    dbgLog("onMatchComplete:VOLUME_GAIN_FINAL", "final volume gain", "L",
+           params.input_gain_db, 0, 0, 0, 0, true);
+    DBG("[ToneMatch] Final volume gain: " + juce::String(params.input_gain_db, 1) + " dB (set to 0 after Match)");
+    
+    // Log expected behavior after normalization
+    if (std::abs(capturedDIPeakDb + 1.0f) < 0.1f) // DI was normalized to -1dB
+    {
+        DBG("[ToneMatch] DI was normalized to -1dB, compensation should be ~0dB");
+        if (std::abs(compensationDb) > 0.5f)
+        {
+            DBG("[ToneMatch] WARNING: Compensation is not ~0dB despite normalized DI!");
+        }
+    }
+    // #endregion
+    
     // #region agent log - Check if parameters are always the same
     dbgLog("onMatchComplete:PARAMS", "match params", "K",
-           params.input_gain_db, params.pre_eq_gain_db, params.pre_eq_freq_hz,
+           params.overdrive_db, params.pre_eq_gain_db, params.pre_eq_freq_hz,
            (int)(params.reverb_wet * 100), (int)(params.delay_mix * 100), true);
     // #endregion
     // Use default values for HPF/LPF (will be controlled by UI)
@@ -752,6 +891,13 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
 
     // Apply the complete rig
     applyNewRig(params);
+    
+    // Set inputNormalized flag to true after successful Match Tone
+    // This enables input normalization in processBlock, since gain was calculated for normalized DI
+    inputNormalized.store(true, std::memory_order_release);
+    DBG("[ToneMatch] Input normalization enabled (gain calculated for normalized DI)");
+    dbgLog("onMatchComplete:INPUT_NORMALIZED_FLAG", "input normalization enabled", "N",
+           0, 0, 0, 1, 0, true);
     
     // Set progress to done
     setProgressStage(3, "Done");
@@ -890,7 +1036,22 @@ void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
     auto setParam = [this](const juce::String& id, float value)
     {
         if (auto* p = apvts.getParameter(id))
-            p->setValueNotifyingHost(p->convertTo0to1(value));
+        {
+            // Check if value is within parameter range
+            auto range = apvts.getParameterRange(id);
+            float clampedValue = juce::jlimit(range.start, range.end, value);
+            if (clampedValue != value)
+            {
+                DBG("[applyNewRig] WARNING: Parameter " + id + " value " + 
+                    juce::String(value, 2) + " dB was clamped to " + 
+                    juce::String(clampedValue, 2) + " dB (range: " + 
+                    juce::String(range.start, 2) + " to " + 
+                    juce::String(range.end, 2) + " dB)");
+                dbgLog("applyNewRig:PARAM_CLAMPED", ("Parameter " + id + " clamped").toRawUTF8(), "M",
+                       value, clampedValue, range.start, (int)range.end, true);
+            }
+            p->setValueNotifyingHost(p->convertTo0to1(clampedValue));
+        }
     };
 
     auto setBoolParam = [this](const juce::String& id, bool value)
@@ -899,6 +1060,7 @@ void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
             p->setValueNotifyingHost(value ? 1.0f : 0.0f);
     };
 
+    setParam("overdrive",      params.overdrive_db);
     setParam("inputGain",      params.input_gain_db);
     setParam("preEqGainDb",    params.pre_eq_gain_db);
     setParam("preEqFreqHz",    params.pre_eq_freq_hz);
@@ -919,6 +1081,11 @@ void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
 //==============================================================================
 bool ToneMatchAudioProcessor::loadPresetToProcessor(const juce::File& file)
 {
+    // Reset input normalization flag when loading preset manually
+    // (presets don't assume normalized input)
+    inputNormalized.store(false, std::memory_order_release);
+    DBG("[ToneMatch] Input normalization disabled (preset loaded manually)");
+    
     return presetManager.loadPreset(file, apvts, *this);
 }
 
