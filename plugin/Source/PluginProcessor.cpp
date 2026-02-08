@@ -654,7 +654,7 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
         return;
     }
 
-    int64 diFileSize = diTemp.getSize();
+    juce::int64 diFileSize = diTemp.getSize();
     if (diFileSize == 0)
     {
         DBG("[ToneMatch] ERROR: DI file is empty: " + diTemp.getFullPathName());

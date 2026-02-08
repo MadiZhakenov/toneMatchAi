@@ -367,6 +367,8 @@ void PythonBridge::run()
         juce::String errorMsg = "Process failed. finished=" + juce::String(finished ? 1 : 0) + 
                                 ", exitCode=" + juce::String(exitCode);
         DBG("[PythonBridge] " + errorMsg);
+        DBG("[PythonBridge] Process failed. Exit code: " + juce::String(exitCode));
+        DBG("[PythonBridge] Output: " + processOutput);
         dbgLogBridge("PythonBridge:PROCESS_FAILED", errorMsg.toRawUTF8(), 0, 0, 0, finished ? 1 : 0, exitCode);
         
         if (!processOutput.isEmpty())
@@ -375,10 +377,6 @@ void PythonBridge::run()
             juce::String errorOutput = processOutput.substring(0, juce::jmin(200, processOutput.length()));
             dbgLogBridge("PythonBridge:ERROR_OUTPUT", errorOutput.toRawUTF8(), 0, 0, 0, processOutput.length(), 0);
         }
-    }
-    {
-        DBG("[PythonBridge] Process failed. Exit code: " + juce::String(exitCode));
-        DBG("[PythonBridge] Output: " + processOutput);
 
         MatchResult fail;
         fail.success = false;
