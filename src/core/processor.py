@@ -1063,311 +1063,299 @@ class ToneProcessor:
                             pass  # Will skip to post-processing
                         else:
                             # IR file is valid - proceed with convolution
-                            # (rest of code continues below)
-            except Exception as ir_validation_error:
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({
-                            "location": "processor.py:IR_VALIDATION_FAILED",
-                            "message": "IR file validation failed",
-                            "data": {
-                                "ir_path": str(ir_path),
-                                "error": str(ir_validation_error)
-                            },
-                            "timestamp": int(time.time() * 1000),
-                            "hypothesisId": "A"
-                        }) + "\n")
-                except: pass
-                # #endregion
-                print(f"Warning: IR file validation failed ({ir_validation_error}), skipping IR and continuing")
+                            try:
+                                # #region agent log
+                                try:
+                                    with open(log_path, "a", encoding="utf-8") as f:
+                                        f.write(json.dumps({
+                                            "location": "processor.py:IR_PEDALBOARD_START",
+                                            "message": "Starting pedalboard.Convolution",
+                                            "data": {
+                                                "ir_path": ir_path,
+                                                "ir_file_size": ir_file_size,
+                                                "audio_len": len(audio_processed),
+                                                "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
+                                                "sample_rate": int(di_track.sr)
+                                            },
+                                            "timestamp": int(__import__("time").time() * 1000),
+                                            "hypothesisId": "C"
+                                        }) + "\n")
+                                except: pass
+                                # #endregion
+                                
+                                convolution = Convolution(impulse_response_filename=ir_path)
+                                audio_processed = convolution(audio_processed, sample_rate=di_track.sr)
+                                
+                                # #region agent log
+                                try:
+                                    with open(log_path, "a", encoding="utf-8") as f:
+                                        f.write(json.dumps({
+                                            "location": "processor.py:IR_PEDALBOARD_SUCCESS",
+                                            "message": "pedalboard.Convolution succeeded",
+                                            "data": {
+                                                "result_len": len(audio_processed),
+                                                "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0,
+                                                "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0,
+                                                "result_has_nan": bool(np.any(np.isnan(audio_processed))),
+                                                "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                                            },
+                                            "timestamp": int(__import__("time").time() * 1000),
+                                            "hypothesisId": "C"
+                                        }) + "\n")
+                                except: pass
+                                # #endregion
+                                
+                                # Validate after IR
+                                result_is_empty = len(audio_processed) == 0
+                                result_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
+                                result_is_all_zero = len(audio_processed) > 0 and np.all(audio_processed == 0)
+                                
+                                if result_is_empty or result_has_nan or result_is_all_zero:
+                                    # #region agent log
+                                    try:
+                                        with open(log_path, "a", encoding="utf-8") as f:
+                                            f.write(json.dumps({
+                                                "location": "processor.py:IR_PEDALBOARD_INVALID",
+                                                "message": "pedalboard.Convolution produced invalid output",
+                                                "data": {
+                                                    "len": len(audio_processed),
+                                                    "has_nan": result_has_nan,
+                                                    "all_zero": result_is_all_zero,
+                                                    "is_empty": result_is_empty,
+                                                    "ir_path": str(ir_path)
+                                                },
+                                                "timestamp": int(__import__("time").time() * 1000),
+                                                "hypothesisId": "D"
+                                            }) + "\n")
+                                    except: pass
+                                    # #endregion
+                                    # Try to fix NaN values before raising error
+                                    if result_has_nan and not result_is_empty:
+                                        print(f"Warning: IR convolution produced NaN values, attempting to fix...")
+                                        audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+                                        # Re-check after fix
+                                        if len(audio_processed) > 0 and not np.all(audio_processed == 0):
+                                            print(f"  Fixed NaN values, continuing with processed audio")
+                                        else:
+                                            # If still invalid, restore original audio before IR (skip IR)
+                                            print(f"  Warning: IR convolution failed after NaN fix, using pre-IR audio as fallback")
+                                            audio_processed = audio_before_ir.copy()
+                                    elif result_is_all_zero:
+                                        # IR produced all zeros - check if input was also zero
+                                        input_was_zero = len(audio_before_ir) > 0 and np.all(audio_before_ir == 0)
+                                        if input_was_zero:
+                                            print(f"Warning: Input audio was all zeros before IR, skipping IR and using original")
+                                            audio_processed = audio_before_ir  # Restore original (which is zeros, but at least consistent)
+                                        else:
+                                            print(f"Warning: IR convolution produced all zeros from non-zero input")
+                                            print(f"  This indicates a problem with the IR file or convolution")
+                                            print(f"  Attempting to use pre-IR audio as fallback")
+                                            audio_processed = audio_before_ir  # Use pre-IR audio as fallback
+                                    else:
+                                        # Empty result - restore original
+                                        print(f"Warning: IR convolution produced empty result, using pre-IR audio")
+                                        audio_processed = audio_before_ir  # Restore original
+                            except Exception as e:
+                                # #region agent log
+                                try:
+                                    import traceback
+                                    with open(log_path, "a", encoding="utf-8") as f:
+                                        f.write(json.dumps({
+                                            "location": "processor.py:IR_PEDALBOARD_ERROR",
+                                            "message": "pedalboard.Convolution failed",
+                                            "data": {
+                                                "error": str(e),
+                                                "error_type": type(e).__name__,
+                                                "traceback": traceback.format_exc()[:500]
+                                            },
+                                            "timestamp": int(__import__("time").time() * 1000),
+                                            "hypothesisId": "C"
+                                        }) + "\n")
+                                except: pass
+                                # #endregion
+                                
+                                # Fallback to scipy convolution if pedalboard fails
+                                print(f"Warning: pedalboard.Convolution failed ({e}), using scipy fallback")
+                                try:
+                                    # #region agent log
+                                    try:
+                                        with open(log_path, "a", encoding="utf-8") as f:
+                                            f.write(json.dumps({
+                                                "location": "processor.py:IR_SCIPY_START",
+                                                "message": "Starting scipy fallback",
+                                                "data": {"ir_path": ir_path},
+                                                "timestamp": int(__import__("time").time() * 1000),
+                                                "hypothesisId": "F"
+                                            }) + "\n")
+                                    except: pass
+                                    # #endregion
+                                    
+                                    # Import scipy.signal here to ensure it's available (already imported at top, but ensure scope)
+                                    from scipy import signal as scipy_signal_fallback
+                                    
+                                    # Restore original audio before IR for scipy fallback
+                                    audio_processed = audio_before_ir.copy()
+                                    
+                                    # Validate input audio before scipy convolution
+                                    if len(audio_processed) == 0:
+                                        print("Warning: Cannot apply scipy convolution: input audio is empty, using pre-IR audio")
+                                        audio_processed = audio_before_ir.copy()
+                                        raise ValueError("Input audio empty")  # Re-raise to trigger outer handler
+                                    if np.any(np.isnan(audio_processed)):
+                                        print("Warning: Input audio has NaN values, fixing before scipy convolution")
+                                        audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+                                    
+                                    # Load IR file
+                                    try:
+                                        ir_audio, ir_sr = sf.read(ir_path)
+                                    except Exception as ir_load_error:
+                                        print(f"Warning: Failed to load IR file for scipy fallback ({ir_load_error}), using pre-IR audio")
+                                        audio_processed = audio_before_ir.copy()
+                                        raise  # Re-raise to trigger outer exception handler
+                                    
+                                    if len(ir_audio) == 0:
+                                        print(f"Warning: IR file is empty: {ir_path}, using pre-IR audio")
+                                        audio_processed = audio_before_ir.copy()
+                                        raise ValueError("IR file is empty")  # Re-raise to trigger outer handler
+                                    
+                                    # #region agent log
+                                    try:
+                                        with open(log_path, "a", encoding="utf-8") as f:
+                                            f.write(json.dumps({
+                                                "location": "processor.py:IR_SCIPY_LOADED",
+                                                "message": "IR file loaded with scipy",
+                                                "data": {
+                                                    "ir_sr": int(ir_sr),
+                                                    "ir_len": len(ir_audio),
+                                                    "ir_shape": list(ir_audio.shape),
+                                                    "ir_dtype": str(ir_audio.dtype),
+                                                    "needs_resample": ir_sr != di_track.sr,
+                                                    "input_audio_len": len(audio_processed),
+                                                    "input_audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0
+                                                },
+                                                "timestamp": int(__import__("time").time() * 1000),
+                                                "hypothesisId": "B"
+                                            }) + "\n")
+                                    except: pass
+                                    # #endregion
+                                    
+                                    if len(ir_audio.shape) > 1:
+                                        ir_audio = ir_audio[:, 0]  # Use first channel if stereo
+                                    
+                                    # Resample IR if needed
+                                    if ir_sr != di_track.sr:
+                                        num_samples = int(len(ir_audio) * di_track.sr / ir_sr)
+                                        if num_samples > 0:
+                                            ir_audio = scipy_signal_fallback.resample(ir_audio, num_samples)
+                                        else:
+                                            print(f"Warning: Invalid resample target size: {num_samples}, using pre-IR audio")
+                                            audio_processed = audio_before_ir.copy()
+                                            raise ValueError("Invalid resample")  # Re-raise to trigger outer handler
+                                    
+                                    # Apply convolution
+                                    if len(ir_audio) == 0:
+                                        print(f"Warning: IR audio is empty after processing, using pre-IR audio")
+                                        audio_processed = audio_before_ir.copy()
+                                        raise ValueError("IR audio empty")  # Re-raise to trigger outer handler
+                                    
+                                    audio_processed = scipy_signal_fallback.fftconvolve(audio_processed, ir_audio, mode='same')
+                                    
+                                    # Ensure result is valid numpy array
+                                    if not isinstance(audio_processed, np.ndarray):
+                                        audio_processed = np.array(audio_processed)
+                                    
+                                    # #region agent log
+                                    try:
+                                        with open(log_path, "a", encoding="utf-8") as f:
+                                            f.write(json.dumps({
+                                                "location": "processor.py:IR_SCIPY_SUCCESS",
+                                                "message": "scipy convolution succeeded",
+                                                "data": {
+                                                    "result_len": len(audio_processed),
+                                                    "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0,
+                                                    "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0,
+                                                    "result_has_nan": bool(np.any(np.isnan(audio_processed))),
+                                                    "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
+                                                },
+                                                "timestamp": int(__import__("time").time() * 1000),
+                                                "hypothesisId": "F"
+                                            }) + "\n")
+                                    except: pass
+                                    # #endregion
+                                    
+                                    # Validate after scipy convolution
+                                    scipy_result_is_empty = len(audio_processed) == 0
+                                    scipy_result_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
+                                    scipy_result_is_all_zero = len(audio_processed) > 0 and np.all(audio_processed == 0)
+                                    
+                                    if scipy_result_is_empty or scipy_result_has_nan or scipy_result_is_all_zero:
+                                        # #region agent log
+                                        try:
+                                            with open(log_path, "a", encoding="utf-8") as f:
+                                                f.write(json.dumps({
+                                                    "location": "processor.py:IR_SCIPY_INVALID",
+                                                    "message": "scipy convolution produced invalid output",
+                                                    "data": {
+                                                        "len": len(audio_processed),
+                                                        "has_nan": scipy_result_has_nan,
+                                                        "all_zero": scipy_result_is_all_zero,
+                                                        "is_empty": scipy_result_is_empty,
+                                                        "ir_path": str(ir_path)
+                                                    },
+                                                    "timestamp": int(__import__("time").time() * 1000),
+                                                    "hypothesisId": "F"
+                                                }) + "\n")
+                                        except: pass
+                                        # #endregion
+                                        # Try to fix NaN values before raising error
+                                        if scipy_result_has_nan and not scipy_result_is_empty:
+                                            print(f"Warning: Scipy convolution produced NaN values, attempting to fix...")
+                                            audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
+                                            # Re-check after fix
+                                            if len(audio_processed) > 0 and not np.all(audio_processed == 0):
+                                                print(f"  Fixed NaN values, continuing with processed audio")
+                                            else:
+                                                print(f"  Warning: Scipy convolution failed, using pre-IR audio as fallback")
+                                                audio_processed = audio_before_ir.copy()
+                                        elif scipy_result_is_all_zero:
+                                            print(f"Warning: Scipy convolution produced all zeros, using pre-IR audio as fallback")
+                                            audio_processed = audio_before_ir.copy()
+                                        else:
+                                            print(f"Warning: Scipy convolution produced empty result, using pre-IR audio as fallback")
+                                            audio_processed = audio_before_ir.copy()
+                                except Exception as scipy_e:
+                                    # #region agent log
+                                    try:
+                                        import traceback
+                                        with open(log_path, "a", encoding="utf-8") as f:
+                                            f.write(json.dumps({
+                                                "location": "processor.py:IR_SCIPY_ERROR",
+                                                "message": "scipy fallback also failed",
+                                                "data": {
+                                                    "pedalboard_error": str(e),
+                                                    "scipy_error": str(scipy_e),
+                                                    "scipy_error_type": type(scipy_e).__name__,
+                                                    "traceback": traceback.format_exc()[:500]
+                                                },
+                                                "timestamp": int(__import__("time").time() * 1000),
+                                                "hypothesisId": "F"
+                                            }) + "\n")
+                                    except: pass
+                                    # #endregion
+                                    # Both failed - use pre-IR audio as final fallback
+                                    print(f"Warning: Both pedalboard and scipy IR convolution failed. Using pre-IR audio as fallback.")
+                                    print(f"  Pedalboard error: {e}")
+                                    print(f"  Scipy error: {scipy_e}")
+                                    audio_processed = audio_before_ir.copy()
+                                    # Continue with pre-IR audio - don't raise error
+                    except Exception as ir_validation_error:
+                        # IR file validation failed, skip IR
+                        print(f"Warning: IR file validation failed ({ir_validation_error}), skipping IR and continuing")
+                        # Skip IR - audio_processed remains unchanged
+            except Exception as ir_file_error:
+                # IR file validation or processing failed, skip IR
+                print(f"Warning: IR file error ({ir_file_error}), skipping IR and continuing")
                 # Skip IR - audio_processed remains unchanged
-            
-            try:
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({
-                            "location": "processor.py:IR_PEDALBOARD_START",
-                            "message": "Starting pedalboard.Convolution",
-                            "data": {
-                                "ir_path": ir_path,
-                                "ir_file_size": ir_file_size,
-                                "audio_len": len(audio_processed),
-                                "audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0,
-                                "sample_rate": int(di_track.sr)
-                            },
-                            "timestamp": int(__import__("time").time() * 1000),
-                            "hypothesisId": "C"
-                        }) + "\n")
-                except: pass
-                # #endregion
-                
-                convolution = Convolution(impulse_response_filename=ir_path)
-                audio_processed = convolution(audio_processed, sample_rate=di_track.sr)
-                
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({
-                            "location": "processor.py:IR_PEDALBOARD_SUCCESS",
-                            "message": "pedalboard.Convolution succeeded",
-                            "data": {
-                                "result_len": len(audio_processed),
-                                "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0,
-                                "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0,
-                                "result_has_nan": bool(np.any(np.isnan(audio_processed))),
-                                "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
-                            },
-                            "timestamp": int(__import__("time").time() * 1000),
-                            "hypothesisId": "C"
-                        }) + "\n")
-                except: pass
-                # #endregion
-                
-                # Validate after IR
-                result_is_empty = len(audio_processed) == 0
-                result_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
-                result_is_all_zero = len(audio_processed) > 0 and np.all(audio_processed == 0)
-                
-                if result_is_empty or result_has_nan or result_is_all_zero:
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({
-                                "location": "processor.py:IR_PEDALBOARD_INVALID",
-                                "message": "pedalboard.Convolution produced invalid output",
-                                "data": {
-                                    "len": len(audio_processed),
-                                    "has_nan": result_has_nan,
-                                    "all_zero": result_is_all_zero,
-                                    "is_empty": result_is_empty,
-                                    "ir_path": str(ir_path)
-                                },
-                                "timestamp": int(__import__("time").time() * 1000),
-                                "hypothesisId": "D"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
-                    # Try to fix NaN values before raising error
-                    if result_has_nan and not result_is_empty:
-                        print(f"Warning: IR convolution produced NaN values, attempting to fix...")
-                        audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
-                        # Re-check after fix
-                        if len(audio_processed) > 0 and not np.all(audio_processed == 0):
-                            print(f"  Fixed NaN values, continuing with processed audio")
-                        else:
-                            # If still invalid, restore original audio before IR (skip IR)
-                            print(f"  Warning: IR convolution failed after NaN fix, using pre-IR audio as fallback")
-                            audio_processed = audio_before_ir.copy()
-                    elif result_is_all_zero:
-                        # IR produced all zeros - check if input was also zero
-                        input_was_zero = len(audio_before_ir) > 0 and np.all(audio_before_ir == 0)
-                        if input_was_zero:
-                            print(f"Warning: Input audio was all zeros before IR, skipping IR and using original")
-                            audio_processed = audio_before_ir  # Restore original (which is zeros, but at least consistent)
-                        else:
-                            print(f"Warning: IR convolution produced all zeros from non-zero input")
-                            print(f"  This indicates a problem with the IR file or convolution")
-                            print(f"  Attempting to use pre-IR audio as fallback")
-                            audio_processed = audio_before_ir  # Use pre-IR audio as fallback
-                    else:
-                        # Empty result - restore original
-                        print(f"Warning: IR convolution produced empty result, using pre-IR audio")
-                        audio_processed = audio_before_ir  # Restore original
-            except Exception as e:
-                # #region agent log
-                try:
-                    import traceback
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({
-                            "location": "processor.py:IR_PEDALBOARD_ERROR",
-                            "message": "pedalboard.Convolution failed",
-                            "data": {
-                                "error": str(e),
-                                "error_type": type(e).__name__,
-                                "traceback": traceback.format_exc()[:500]
-                            },
-                            "timestamp": int(__import__("time").time() * 1000),
-                            "hypothesisId": "C"
-                        }) + "\n")
-                except: pass
-                # #endregion
-                
-                # Fallback to scipy convolution if pedalboard fails
-                print(f"Warning: pedalboard.Convolution failed ({e}), using scipy fallback")
-                try:
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({
-                                "location": "processor.py:IR_SCIPY_START",
-                                "message": "Starting scipy fallback",
-                                "data": {"ir_path": ir_path},
-                                "timestamp": int(__import__("time").time() * 1000),
-                                "hypothesisId": "F"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
-                    
-                    # Import scipy.signal here to ensure it's available (already imported at top, but ensure scope)
-                    from scipy import signal as scipy_signal_fallback
-                    
-                    # Restore original audio before IR for scipy fallback
-                    audio_processed = audio_before_ir.copy()
-                    
-                    # Validate input audio before scipy convolution
-                    if len(audio_processed) == 0:
-                        print("Warning: Cannot apply scipy convolution: input audio is empty, using pre-IR audio")
-                        audio_processed = audio_before_ir.copy()
-                        raise ValueError("Input audio empty")  # Re-raise to trigger outer handler
-                    if np.any(np.isnan(audio_processed)):
-                        print("Warning: Input audio has NaN values, fixing before scipy convolution")
-                        audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
-                    
-                    # Load IR file
-                    try:
-                        ir_audio, ir_sr = sf.read(ir_path)
-                    except Exception as ir_load_error:
-                        print(f"Warning: Failed to load IR file for scipy fallback ({ir_load_error}), using pre-IR audio")
-                        audio_processed = audio_before_ir.copy()
-                        raise  # Re-raise to trigger outer exception handler
-                    
-                    if len(ir_audio) == 0:
-                        print(f"Warning: IR file is empty: {ir_path}, using pre-IR audio")
-                        audio_processed = audio_before_ir.copy()
-                        raise ValueError("IR file is empty")  # Re-raise to trigger outer handler
-                    
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({
-                                "location": "processor.py:IR_SCIPY_LOADED",
-                                "message": "IR file loaded with scipy",
-                                "data": {
-                                    "ir_sr": int(ir_sr),
-                                    "ir_len": len(ir_audio),
-                                    "ir_shape": list(ir_audio.shape),
-                                    "ir_dtype": str(ir_audio.dtype),
-                                    "needs_resample": ir_sr != di_track.sr,
-                                    "input_audio_len": len(audio_processed),
-                                    "input_audio_rms": float(np.sqrt(np.mean(audio_processed**2))) if len(audio_processed) > 0 else 0.0
-                                },
-                                "timestamp": int(__import__("time").time() * 1000),
-                                "hypothesisId": "B"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
-                    
-                    if len(ir_audio.shape) > 1:
-                        ir_audio = ir_audio[:, 0]  # Use first channel if stereo
-                    
-                    # Resample IR if needed
-                    if ir_sr != di_track.sr:
-                        num_samples = int(len(ir_audio) * di_track.sr / ir_sr)
-                        if num_samples > 0:
-                            ir_audio = scipy_signal_fallback.resample(ir_audio, num_samples)
-                        else:
-                            print(f"Warning: Invalid resample target size: {num_samples}, using pre-IR audio")
-                            audio_processed = audio_before_ir.copy()
-                            raise ValueError("Invalid resample")  # Re-raise to trigger outer handler
-                    
-                    # Apply convolution
-                    if len(ir_audio) == 0:
-                        print(f"Warning: IR audio is empty after processing, using pre-IR audio")
-                        audio_processed = audio_before_ir.copy()
-                        raise ValueError("IR audio empty")  # Re-raise to trigger outer handler
-                    
-                    audio_processed = scipy_signal_fallback.fftconvolve(audio_processed, ir_audio, mode='same')
-                    
-                    # Ensure result is valid numpy array
-                    if not isinstance(audio_processed, np.ndarray):
-                        audio_processed = np.array(audio_processed)
-                    
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({
-                                "location": "processor.py:IR_SCIPY_SUCCESS",
-                                "message": "scipy convolution succeeded",
-                                "data": {
-                                    "result_len": len(audio_processed),
-                                    "result_min": float(np.min(audio_processed)) if len(audio_processed) > 0 else 0,
-                                    "result_max": float(np.max(audio_processed)) if len(audio_processed) > 0 else 0,
-                                    "result_has_nan": bool(np.any(np.isnan(audio_processed))),
-                                    "result_all_zero": bool(np.all(audio_processed == 0)) if len(audio_processed) > 0 else True
-                                },
-                                "timestamp": int(__import__("time").time() * 1000),
-                                "hypothesisId": "F"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
-                    
-                    # Validate after scipy convolution
-                    scipy_result_is_empty = len(audio_processed) == 0
-                    scipy_result_has_nan = len(audio_processed) > 0 and np.any(np.isnan(audio_processed))
-                    scipy_result_is_all_zero = len(audio_processed) > 0 and np.all(audio_processed == 0)
-                    
-                    if scipy_result_is_empty or scipy_result_has_nan or scipy_result_is_all_zero:
-                        # #region agent log
-                        try:
-                            with open(log_path, "a", encoding="utf-8") as f:
-                                f.write(json.dumps({
-                                    "location": "processor.py:IR_SCIPY_INVALID",
-                                    "message": "scipy convolution produced invalid output",
-                                    "data": {
-                                        "len": len(audio_processed),
-                                        "has_nan": scipy_result_has_nan,
-                                        "all_zero": scipy_result_is_all_zero,
-                                        "is_empty": scipy_result_is_empty,
-                                        "ir_path": str(ir_path)
-                                    },
-                                    "timestamp": int(__import__("time").time() * 1000),
-                                    "hypothesisId": "F"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
-                        # Try to fix NaN values before raising error
-                        if scipy_result_has_nan and not scipy_result_is_empty:
-                            print(f"Warning: Scipy convolution produced NaN values, attempting to fix...")
-                            audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
-                            # Re-check after fix
-                            if len(audio_processed) > 0 and not np.all(audio_processed == 0):
-                                print(f"  Fixed NaN values, continuing with processed audio")
-                            else:
-                                print(f"  Warning: Scipy convolution failed, using pre-IR audio as fallback")
-                                audio_processed = audio_before_ir.copy()
-                        elif scipy_result_is_all_zero:
-                            print(f"Warning: Scipy convolution produced all zeros, using pre-IR audio as fallback")
-                            audio_processed = audio_before_ir.copy()
-                        else:
-                            print(f"Warning: Scipy convolution produced empty result, using pre-IR audio as fallback")
-                            audio_processed = audio_before_ir.copy()
-                except Exception as scipy_e:
-                    # #region agent log
-                    try:
-                        import traceback
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({
-                                "location": "processor.py:IR_SCIPY_ERROR",
-                                "message": "scipy fallback also failed",
-                                "data": {
-                                    "pedalboard_error": str(e),
-                                    "scipy_error": str(scipy_e),
-                                    "scipy_error_type": type(scipy_e).__name__,
-                                    "traceback": traceback.format_exc()[:500]
-                                },
-                                "timestamp": int(__import__("time").time() * 1000),
-                                "hypothesisId": "F"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
-                    # Both failed - use pre-IR audio as final fallback
-                    print(f"Warning: Both pedalboard and scipy IR convolution failed. Using pre-IR audio as fallback.")
-                    print(f"  Pedalboard error: {e}")
-                    print(f"  Scipy error: {scipy_e}")
-                    audio_processed = audio_before_ir.copy()
-                    # Continue with pre-IR audio - don't raise error
         
         # Step 5: Delay (Post-FX parameter)
         if DELAY_AVAILABLE:
