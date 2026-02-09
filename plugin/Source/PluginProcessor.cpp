@@ -280,45 +280,26 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     // #endregion
 
-    // ── Conditional input normalization (only after Match Tone) ────────────────
-    // Normalize input signal to -1dB only if inputNormalized flag is set.
-    // This flag is set after successful Match Tone, when gain was calculated for normalized DI.
-    // For normal operation (clean sound, manual presets), input is NOT normalized.
-    bool shouldNormalize = inputNormalized.load(std::memory_order_acquire);
-    // #region agent log
-    static int normalizationLogCount = 0;
-    if ((normalizationLogCount % 1000) == 0)
+    // ── Apply compensation gain (FIRST, before all processing) ─────────────────
+    // This converts user's input level to the level that Python optimizer expects (-1dB).
+    // Compensation gain is calculated once during DI capture and applied to all incoming audio.
+    float compensationGain = inputCompensationLinear.load(std::memory_order_acquire);
+    if (compensationGain != 1.0f)
     {
-        dbgLog("processBlock:NORMALIZATION_FLAG", "input normalization flag state", "N",
-               shouldNormalize ? 1.0f : 0.0f, inputDbMax, 0, 0, 0);
-        normalizationLogCount++;
-    }
-    // #endregion
-    
-    if (shouldNormalize)
-    {
-        if (inputMax > 1e-6f) // Only if not too quiet
+        buffer.applyGain(compensationGain);
+        
+        // #region agent log
+        static int compensationLogCount = 0;
+        if ((compensationLogCount % 1000) == 0)
         {
-            const float targetLinear = juce::Decibels::decibelsToGain(-1.0f); // ≈ 0.89125
-            const float normalizeGain = targetLinear / inputMax;
-            
-            // Limit normalization gain to prevent excessive amplification (max +40dB)
-            const float maxNormalizeGainDb = 40.0f;
-            const float maxNormalizeGainLinear = juce::Decibels::decibelsToGain(maxNormalizeGainDb);
-            const float clampedNormalizeGain = juce::jmin(normalizeGain, maxNormalizeGainLinear);
-            
-            // Apply normalization to all channels
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.applyGain(ch, 0, numSamples, clampedNormalizeGain);
-            
-            // #region agent log
-            float normalizeGainDb = 20.0f * std::log10(clampedNormalizeGain);
-            float normalizedPeak = peakOf(buffer, 0);
-            float normalizedDb = peakToDb(normalizedPeak);
-            dbgLog("processBlock:INPUT_NORMALIZED", "input normalized to -1dB (after Match)", "N",
-                   inputDbMax, normalizeGainDb, normalizedDb, 1, 0);
-            // #endregion
+            float compensationDb = juce::Decibels::gainToDecibels(compensationGain);
+            float compensatedPeak = peakOf(buffer, 0);
+            float compensatedDb = peakToDb(compensatedPeak);
+            dbgLog("processBlock:COMPENSATION", "compensation gain applied", "N",
+                   inputDbMax, compensationDb, compensatedDb, 1, 0);
+            compensationLogCount++;
         }
+        // #endregion
     }
 
     // Read parameters from APVTS (lock-free)
@@ -551,9 +532,9 @@ void ToneMatchAudioProcessor::setStateInformation(const void* data, int sizeInBy
 
     if (parsed.isObject())
     {
-        // Reset input normalization flag when loading state
+        // Reset compensation gain when loading state
         // (state loading typically means manual preset change)
-        inputNormalized.store(false, std::memory_order_release);
+        inputCompensationLinear.store(1.0f, std::memory_order_release);
         PresetManager::varToState(parsed, apvts, *this);
     }
 }
@@ -683,6 +664,26 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
         dbgLog("triggerMatch:DI_QUIET", "DI is very quiet", "J", peakLinear, peakDb, 0, 0, 0, true);
         // Continue anyway - might be intentional
     }
+
+    // ── Calculate compensation gain (BEFORE normalizing DI) ────────────────────
+    // Save original peak level before normalization
+    float originalPeakDb = peakDb;
+    // Protection against silence: clamp to -60dB minimum
+    if (originalPeakDb < -60.0f) originalPeakDb = -60.0f;
+    
+    // Calculate compensation: how much gain to add to make originalPeak become -1dB
+    const float targetLevelDb = -1.0f;
+    const float compensationDb = targetLevelDb - originalPeakDb;
+    
+    // Store compensation as linear gain for real-time application
+    float compensationLinear = juce::Decibels::decibelsToGain(compensationDb);
+    inputCompensationLinear.store(compensationLinear, std::memory_order_release);
+    
+    DBG("[ToneMatch] Compensation gain: " + juce::String(compensationDb, 1) + 
+        " dB (linear: " + juce::String(compensationLinear, 4) + 
+        ", original peak: " + juce::String(originalPeakDb, 1) + " dB)");
+    dbgLog("triggerMatch:COMPENSATION", "compensation gain calculated", "J",
+           originalPeakDb, compensationDb, compensationLinear, 0, 0, true);
 
     // Normalize captured DI to -1dB before writing to file
     // Python optimizer expects DI normalized to -1dB (as done in src/core/io.py)
@@ -892,12 +893,8 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
     // Apply the complete rig
     applyNewRig(params);
     
-    // Set inputNormalized flag to true after successful Match Tone
-    // This enables input normalization in processBlock, since gain was calculated for normalized DI
-    inputNormalized.store(true, std::memory_order_release);
-    DBG("[ToneMatch] Input normalization enabled (gain calculated for normalized DI)");
-    dbgLog("onMatchComplete:INPUT_NORMALIZED_FLAG", "input normalization enabled", "N",
-           0, 0, 0, 1, 0, true);
+    // Note: Compensation gain was already calculated and stored in triggerMatch()
+    // No need to set any flags here - compensation is applied automatically in processBlock()
     
     // Set progress to done
     setProgressStage(3, "Done");
@@ -1081,10 +1078,10 @@ void ToneMatchAudioProcessor::applyNewRig(const RigParameters& params)
 //==============================================================================
 bool ToneMatchAudioProcessor::loadPresetToProcessor(const juce::File& file)
 {
-    // Reset input normalization flag when loading preset manually
-    // (presets don't assume normalized input)
-    inputNormalized.store(false, std::memory_order_release);
-    DBG("[ToneMatch] Input normalization disabled (preset loaded manually)");
+    // Reset compensation gain when loading preset manually
+    // (presets don't assume compensation gain)
+    inputCompensationLinear.store(1.0f, std::memory_order_release);
+    DBG("[ToneMatch] Compensation gain reset (preset loaded manually)");
     
     return presetManager.loadPreset(file, apvts, *this);
 }

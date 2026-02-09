@@ -236,9 +236,10 @@ private:
     std::atomic<bool> aiLockEnabled { false };
     std::atomic<bool> cabLockEnabled { false };
 
-    // Flag to indicate if input should be normalized (set after Match Tone)
-    // When true, input signal is normalized to -1dB to match the normalized DI used during optimization
-    std::atomic<bool> inputNormalized { false };
+    // Compensation gain: fixed linear gain applied to input signal to match the level
+    // that Python optimizer expects (-1dB). Calculated once during DI capture and
+    // applied to all incoming audio before processing chain.
+    std::atomic<float> inputCompensationLinear { 1.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToneMatchAudioProcessor)
 };
