@@ -804,6 +804,29 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
     // Update progress to optimizing stage (if not already done)
     setProgressStage(2, "Optimizing...");
 
+    // ── DETAILED PARAMETER LOGGING ─────────────────────────────────────────────
+    // Log all parameters received from Python optimizer for diagnostics
+    DBG("[onMatchComplete] ========== ALL PARAMETERS RECEIVED FROM PYTHON ==========");
+    DBG("  Rig Info:");
+    DBG("    - FX NAM: " + result.fxNamName + " (" + result.fxNamPath + ")");
+    DBG("    - AMP NAM: " + result.ampNamName + " (" + result.ampNamPath + ")");
+    DBG("    - IR: " + result.irName + " (" + result.irPath + ")");
+    DBG("  DSP Parameters (from JSON):");
+    DBG("    - inputGainDb (from optimizer): " + juce::String(result.inputGainDb, 2) + " dB");
+    DBG("    - overdriveDb (explicit field): " + juce::String(result.overdriveDb, 2) + " dB");
+    DBG("    - preEqGainDb: " + juce::String(result.preEqGainDb, 2) + " dB");
+    DBG("    - preEqFreqHz: " + juce::String(result.preEqFreqHz, 2) + " Hz");
+    DBG("    - reverbWet: " + juce::String(result.reverbWet, 3));
+    DBG("    - reverbRoomSize: " + juce::String(result.reverbRoomSize, 3));
+    DBG("    - delayTimeMs: " + juce::String(result.delayTimeMs, 2) + " ms");
+    DBG("    - delayMix: " + juce::String(result.delayMix, 3));
+    DBG("    - finalEqGainDb: " + juce::String(result.finalEqGainDb, 2) + " dB");
+    DBG("    - loss: " + juce::String(result.loss, 6));
+    DBG("  DI Capture State:");
+    DBG("    - capturedDIPeakDb: " + juce::String(capturedDIPeakDb, 2) + " dB");
+    DBG("================================================================");
+    // #endregion
+
     // Build RigParameters from MatchResult
     RigParameters params;
     params.fx_path = result.fxNamPath;
@@ -823,16 +846,100 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
     params.delay_time_ms = result.delayTimeMs;
     params.delay_mix = result.delayMix;
     
-    // Apply gain compensation: result.inputGainDb is relative to a DI normalized to -1dB.
+    // ── Calculate gain compensation ──────────────────────────────────────────
+    // result.inputGainDb from Python optimizer is relative to a DI normalized to -1dB.
     // After normalization in triggerMatch(), capturedDIPeakDb should be -1.0f,
-    // so compensationDb should be ~0.0f. We keep this for safety/backward compatibility.
-    float compensationDb = -1.0f - capturedDIPeakDb;
+    // so compensationDb should be ~0.0f.
+    // 
+    // Compensation formula: compensationDb = targetLevelDb - actualLevelDb
+    // where targetLevelDb = -1.0f (what Python optimizer expects)
+    // and actualLevelDb = capturedDIPeakDb (what we actually have)
+    const float targetLevelDb = -1.0f;
+    float compensationDb = targetLevelDb - capturedDIPeakDb;
+    
+    // Verify that DI was normalized correctly
+    // If capturedDIPeakDb is close to -1.0f, compensation should be ~0.0f
+    const float normalizationTolerance = 0.1f;  // Allow 0.1 dB tolerance
+    bool diWasNormalized = std::abs(capturedDIPeakDb - targetLevelDb) < normalizationTolerance;
+    
+    if (diWasNormalized)
+    {
+        // DI was normalized to -1dB, so compensation should be ~0dB
+        // Force it to 0.0f to avoid floating point errors
+        if (std::abs(compensationDb) < 0.5f)
+        {
+            compensationDb = 0.0f;
+            DBG("[onMatchComplete] DI was normalized to -1dB, compensation set to 0.0 dB");
+        }
+        else
+        {
+            DBG("[onMatchComplete] WARNING: DI appears normalized but compensation is " + 
+                juce::String(compensationDb, 2) + " dB (expected ~0 dB)");
+        }
+    }
+    else
+    {
+        // DI was not normalized (too quiet), use calculated compensation
+        DBG("[onMatchComplete] WARNING: DI was NOT normalized (peak: " + 
+            juce::String(capturedDIPeakDb, 2) + " dB). Compensation: " + 
+            juce::String(compensationDb, 2) + " dB");
+    }
+    
     // Limit compensation to a reasonable range (max +60dB) to allow sufficient gain for overdrive
+    // This prevents extreme compensation values that could cause issues
+    float compensationDbBeforeLimit = compensationDb;
     compensationDb = juce::jlimit(-12.0f, 60.0f, compensationDb);
     
+    if (compensationDb != compensationDbBeforeLimit)
+    {
+        DBG("[onMatchComplete] WARNING: Compensation was clamped from " + 
+            juce::String(compensationDbBeforeLimit, 2) + " dB to " + 
+            juce::String(compensationDb, 2) + " dB");
+    }
+    
     // After DI normalization, capturedDIPeakDb should be -1.0f, so compensation should be 0.0f
-    // result.inputGainDb becomes overdrive_db (applied before NAM for overdrive)
-    params.overdrive_db = result.inputGainDb + compensationDb;
+    // Use overdriveDb if available (explicit field), otherwise fallback to inputGainDb
+    // Both represent the same value from Python optimizer, but overdriveDb is more explicit
+    float optimizerOverdriveDb = (result.overdriveDb != 0.0f || result.inputGainDb == 0.0f) 
+                                  ? result.overdriveDb 
+                                  : result.inputGainDb;
+    params.overdrive_db = optimizerOverdriveDb + compensationDb;
+    
+    // ── DETAILED OVERDRIVE CALCULATION LOGGING ────────────────────────────────
+    DBG("[onMatchComplete] ========== OVERDRIVE CALCULATION ==========");
+    DBG("  Step 1: Python optimizer returned:");
+    DBG("    - inputGainDb = " + juce::String(result.inputGainDb, 2) + " dB");
+    DBG("    - overdriveDb = " + juce::String(result.overdriveDb, 2) + " dB");
+    DBG("    - Using overdriveDb value: " + juce::String(optimizerOverdriveDb, 2) + " dB");
+    DBG("  Step 2: DI was normalized to capturedDIPeakDb = " + juce::String(capturedDIPeakDb, 2) + " dB");
+    DBG("  Step 3: Compensation calculated: compensationDb = -1.0 - " + 
+        juce::String(capturedDIPeakDb, 2) + " = " + juce::String(compensationDb, 2) + " dB");
+    DBG("  Step 4: Final overdrive_db = optimizerOverdriveDb + compensationDb = " + 
+        juce::String(optimizerOverdriveDb, 2) + " + " + juce::String(compensationDb, 2) + 
+        " = " + juce::String(params.overdrive_db, 2) + " dB");
+    
+    // Check if overdrive is suspiciously low for metal tones
+    if (params.overdrive_db < 10.0f)
+    {
+        DBG("[onMatchComplete] WARNING: Final overdrive_db is very low (" + 
+            juce::String(params.overdrive_db, 2) + " dB). For metal tones, expected 15-30 dB.");
+        DBG("  This might indicate:");
+        DBG("    1. Python optimizer did not find high enough input_gain_db");
+        DBG("    2. Compensation calculation issue");
+        DBG("    3. Reference tone might not be metal");
+    }
+    else if (params.overdrive_db >= 10.0f && params.overdrive_db < 15.0f)
+    {
+        DBG("[onMatchComplete] INFO: Overdrive_db is moderate (" + 
+            juce::String(params.overdrive_db, 2) + " dB). May be sufficient for some tones.");
+    }
+    else
+    {
+        DBG("[onMatchComplete] INFO: Overdrive_db is high (" + 
+            juce::String(params.overdrive_db, 2) + " dB). Should produce significant distortion.");
+    }
+    DBG("================================================================");
+    // #endregion
     
     // Input gain (volume) is set to 0dB after Match Tone
     // User can adjust it manually if needed, but it doesn't affect overdrive
@@ -879,6 +986,21 @@ void ToneMatchAudioProcessor::onMatchComplete(const MatchResult& result)
            params.overdrive_db, params.pre_eq_gain_db, params.pre_eq_freq_hz,
            (int)(params.reverb_wet * 100), (int)(params.delay_mix * 100), true);
     // #endregion
+    
+    // ── FINAL PARAMETERS SUMMARY ──────────────────────────────────────────────
+    DBG("[onMatchComplete] ========== FINAL PARAMETERS TO APPLY ==========");
+    DBG("  Overdrive: " + juce::String(params.overdrive_db, 2) + " dB");
+    DBG("  Input Gain (Volume): " + juce::String(params.input_gain_db, 2) + " dB");
+    DBG("  Pre-EQ Gain: " + juce::String(params.pre_eq_gain_db, 2) + " dB @ " + 
+        juce::String(params.pre_eq_freq_hz, 1) + " Hz");
+    DBG("  Reverb: " + juce::String(params.reverb_wet * 100.0f, 1) + "% wet, room size " + 
+        juce::String(params.reverb_room_size, 2));
+    DBG("  Delay: " + juce::String(params.delay_mix * 100.0f, 1) + "% mix, " + 
+        juce::String(params.delay_time_ms, 1) + " ms");
+    DBG("  HPF: " + juce::String(params.hpf_freq, 1) + " Hz, LPF: " + juce::String(params.lpf_freq, 1) + " Hz");
+    DBG("================================================================");
+    // #endregion
+    
     // Use default values for HPF/LPF (will be controlled by UI)
     params.hpf_freq = 70.0f;
     params.lpf_freq = 8000.0f;

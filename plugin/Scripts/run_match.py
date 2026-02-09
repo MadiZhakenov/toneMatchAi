@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Thin CLI wrapper for the ToneMatch AI optimizer.
 
@@ -12,6 +13,16 @@ import argparse
 import json
 import os
 import sys
+
+# Fix encoding for Windows console to prevent 'charmap' codec errors
+if sys.platform == 'win32':
+    import io
+    import codecs
+    # Set UTF-8 encoding for stdout and stderr
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    if sys.stderr.encoding != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
 # Add project root to sys.path so we can import src.*
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -319,6 +330,7 @@ def main():
                 },
                 "params": {
                     "input_gain_db": 0.0,
+                    "overdrive_db": 0.0,
                     "pre_eq_gain_db": 0.0,
                     "pre_eq_freq_hz": 800.0,
                     "reverb_wet": 0.0,
@@ -359,6 +371,16 @@ def main():
     amp_nam_path = make_absolute(discovered_rig.get("amp_nam_path", ""))
     ir_path = make_absolute(discovered_rig.get("ir_path", ""))
 
+    # Get input_gain_db from best_params or fallback to grid_search_results
+    input_gain_db = float(best_params.get("input_gain_db",
+                        result.get("grid_search_results", {})
+                              .get("best_rig", {})
+                              .get("input_gain_db", 0.0)))
+    
+    # input_gain_db is used as overdrive_db in the VST plugin
+    # Add explicit overdrive_db field for clarity (duplicates input_gain_db)
+    overdrive_db = input_gain_db
+
     output = {
         "rig": {
             "fx_nam":       discovered_rig.get("fx_nam_name", ""),
@@ -369,10 +391,8 @@ def main():
             "ir_path":      ir_path
         },
         "params": {
-            "input_gain_db":    float(best_params.get("input_gain_db",
-                                    result.get("grid_search_results", {})
-                                          .get("best_rig", {})
-                                          .get("input_gain_db", 0.0))),
+            "input_gain_db":    input_gain_db,
+            "overdrive_db":     overdrive_db,  # Explicit field for overdrive (duplicates input_gain_db)
             "pre_eq_gain_db":   float(best_params.get("pre_eq_gain_db", 0.0)),
             "pre_eq_freq_hz":   float(best_params.get("pre_eq_freq_hz", 800.0)),
             "reverb_wet":       float(best_params.get("reverb_wet", 0.0)),

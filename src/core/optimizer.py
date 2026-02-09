@@ -1204,6 +1204,14 @@ class ToneOptimizer:
             print(f"  G-Loss: {best_g_loss:.6f} (includes Harmonic Warmth + Dynamics)")
             print(f"  Mel-Loss: {best_mel_loss:.6f} (spectral similarity only)")
             print(f"  Gain: {best_gain:.2f}dB")
+            
+            # ── DIAGNOSTIC: Log input_gain_db value ─────────────────────────────
+            print(f"  [DIAGNOSTIC] input_gain_db = {best_gain:.2f} dB (will be used as overdrive_db in VST)")
+            if best_gain < 10.0:
+                print(f"    ⚠️  WARNING: Very low input_gain_db! May result in insufficient distortion.")
+            elif best_gain < 15.0:
+                print(f"    ⚠️  INFO: Moderate input_gain_db. May be sufficient for some tones.")
+            # #endregion
             print(f"\nTop {top_n} Combinations (ranked by G-Loss):")
             for idx, rig in enumerate(top_rigs, 1):
                 g_loss_val = rig.get('g_loss', rig['loss'])
@@ -2399,6 +2407,41 @@ class ToneOptimizer:
         print(f"    [{best_rig['fx_nam_name']} -> {best_rig['amp_nam_name']} -> {best_rig['ir_name']}]")
         print(f"    Loss: {best_rig.get('g_loss', best_rig.get('loss', 0.0)):.4f}, Gain: {best_rig['input_gain_db']:.0f}dB")
         
+        # ── DIAGNOSTIC LOGGING FOR OVERDRIVE ──────────────────────────────────
+        input_gain_db = best_rig['input_gain_db']
+        aggression_level = ref_analysis.get('aggression_level', 'unknown').lower()
+        
+        print(f"\n  [DIAGNOSTIC] Overdrive Parameter Analysis:")
+        print(f"    - input_gain_db (used as overdrive_db in VST): {input_gain_db:.2f} dB")
+        print(f"    - Reference aggression level: {aggression_level.upper()}")
+        
+        # Check if overdrive is suspiciously low for high-gain tones
+        if aggression_level in ['high-gain', 'metal', 'aggressive']:
+            if input_gain_db < 15.0:
+                print(f"    ⚠️  WARNING: input_gain_db ({input_gain_db:.2f} dB) is low for {aggression_level} tone!")
+                print(f"       Expected range: 15-30 dB for metal/high-gain tones")
+                print(f"       This might result in insufficient distortion in the VST plugin")
+            elif input_gain_db < 20.0:
+                print(f"    ⚠️  INFO: input_gain_db ({input_gain_db:.2f} dB) is moderate for {aggression_level} tone")
+                print(f"       May be sufficient, but higher values (20-30 dB) typically produce better distortion")
+            else:
+                print(f"    ✓  input_gain_db ({input_gain_db:.2f} dB) is in good range for {aggression_level} tone")
+        elif aggression_level in ['clean', 'crunch']:
+            if input_gain_db > 20.0:
+                print(f"    ⚠️  INFO: input_gain_db ({input_gain_db:.2f} dB) is high for {aggression_level} tone")
+                print(f"       This is expected if reference has some distortion")
+            else:
+                print(f"    ✓  input_gain_db ({input_gain_db:.2f} dB) is appropriate for {aggression_level} tone")
+        else:
+            print(f"    - input_gain_db ({input_gain_db:.2f} dB) - no specific recommendation")
+        
+        # Log all top rigs' input_gain_db values for comparison
+        if top_rigs:
+            print(f"\n  [DIAGNOSTIC] Top {len(top_rigs)} rigs input_gain_db values:")
+            for idx, rig in enumerate(top_rigs[:5], 1):  # Show top 5
+                print(f"    {idx}. {rig['input_gain_db']:.2f} dB - [{rig['fx_nam_name']} -> {rig['amp_nam_name']}]")
+        # #endregion
+        
         # Step 3: Deep Post-FX Optimization
         print(f"\n{'='*70}")
         print("[Step 3: Final Tuning] Optimizing Post-FX (Pre-EQ, Reverb, Delay)...")
@@ -2430,8 +2473,18 @@ class ToneOptimizer:
         print("\n[Applying] Applying optimized parameters to full track...")
         processor = ToneProcessor()
         
+        # ── DIAGNOSTIC: Log final input_gain_db before processing ──────────────
+        final_input_gain_db = best_rig['input_gain_db']
+        print(f"\n[DIAGNOSTIC] Final parameters before processing:")
+        print(f"  input_gain_db (overdrive_db): {final_input_gain_db:.2f} dB")
+        print(f"  This value will be written to JSON and used as overdrive_db in VST plugin")
+        if final_input_gain_db < 10.0:
+            print(f"  ⚠️  WARNING: input_gain_db is very low ({final_input_gain_db:.2f} dB)")
+            print(f"     For metal/high-gain tones, expected range is 15-30 dB")
+        # #endregion
+        
         gain_params = {
-            'input_gain_db': best_rig['input_gain_db']
+            'input_gain_db': final_input_gain_db
         }
         
         post_fx_params = post_fx_results['best_parameters']

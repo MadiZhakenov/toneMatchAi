@@ -27,7 +27,8 @@ struct MatchResult
     juce::String irPath;
 
     // DSP parameters
-    float inputGainDb    = 0.0f;
+    float inputGainDb    = 0.0f;  // Input gain from optimizer (used as overdrive_db)
+    float overdriveDb     = 0.0f;  // Explicit overdrive parameter (if present in JSON, otherwise = inputGainDb)
     float preEqGainDb    = 0.0f;
     float preEqFreqHz    = 800.0f;
     float reverbWet      = 0.0f;

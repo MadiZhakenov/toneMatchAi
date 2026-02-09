@@ -494,6 +494,19 @@ MatchResult PythonBridge::parseResultJson(const juce::File& jsonFile)
     if (auto* params = parsed.getProperty("params", {}).getDynamicObject())
     {
         result.inputGainDb    = static_cast<float>((double) params->getProperty("input_gain_db"));
+        
+        // Parse overdrive_db if present, otherwise use input_gain_db as fallback
+        // This allows explicit overdrive_db in JSON while maintaining backward compatibility
+        if (params->hasProperty("overdrive_db"))
+        {
+            result.overdriveDb = static_cast<float>((double) params->getProperty("overdrive_db"));
+        }
+        else
+        {
+            // Fallback: use input_gain_db as overdrive_db (backward compatibility)
+            result.overdriveDb = result.inputGainDb;
+        }
+        
         result.preEqGainDb    = static_cast<float>((double) params->getProperty("pre_eq_gain_db"));
         result.preEqFreqHz    = static_cast<float>((double) params->getProperty("pre_eq_freq_hz"));
         result.reverbWet      = static_cast<float>((double) params->getProperty("reverb_wet"));
@@ -506,6 +519,8 @@ MatchResult PythonBridge::parseResultJson(const juce::File& jsonFile)
         dbgLogBridge("parseResultJson:PARAMS", "parsed params from JSON", 
                      result.inputGainDb, result.preEqGainDb, result.preEqFreqHz,
                      (int)(result.reverbWet * 100), (int)(result.delayMix * 100));
+        DBG("[PythonBridge] Parsed overdriveDb: " + juce::String(result.overdriveDb, 2) + 
+            " dB (from JSON field: " + (params->hasProperty("overdrive_db") ? "overdrive_db" : "input_gain_db") + ")");
         // #endregion
     }
     else

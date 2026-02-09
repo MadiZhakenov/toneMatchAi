@@ -15,7 +15,7 @@ ToneMatchAudioProcessorEditor::ToneMatchAudioProcessorEditor(
       processorRef(p),
       progressBar(progressValue)
 {
-    setSize(700, 690);
+    setSize(700, 740);  // Increased height for Overdrive slider
 
     // Subscribe to progress state changes
     processorRef.getProgressState().addListener(this);
@@ -77,7 +77,7 @@ void ToneMatchAudioProcessorEditor::resized()
 
     // ── Section B: Diagnostics (center, expanded for Expert Tweaks) ──────────
     {
-        auto sectionB = area.removeFromTop(320).reduced(20, 10);
+        auto sectionB = area.removeFromTop(370).reduced(20, 10);  // Increased height for Overdrive slider
         
         // Rig name label (top)
         rigNameLabel.setBounds(sectionB.removeFromTop(25));
@@ -107,6 +107,12 @@ void ToneMatchAudioProcessorEditor::resized()
         gainLabel.setBounds(sectionB.removeFromTop(16));
         sectionB.removeFromTop(2);
         gainSlider.setBounds(sectionB.removeFromTop(30));
+        sectionB.removeFromTop(5);
+        
+        // OVERDRIVE
+        overdriveLabel.setBounds(sectionB.removeFromTop(16));
+        sectionB.removeFromTop(2);
+        overdriveSlider.setBounds(sectionB.removeFromTop(30));
         sectionB.removeFromTop(5);
         
         // HPF and LPF (side by side)
@@ -452,6 +458,25 @@ void ToneMatchAudioProcessorEditor::setupSectionB()
     gainLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     gainLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(gainLabel);
+
+    // OVERDRIVE slider (for testing distortion)
+    overdriveSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    overdriveSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    overdriveSlider.setColour(juce::Slider::trackColourId, getAccentColour());
+    overdriveSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
+    overdriveSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
+    overdriveSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
+    overdriveSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    overdriveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "overdrive", overdriveSlider);
+    addAndMakeVisible(overdriveSlider);
+
+    overdriveLabel.setText("OVERDRIVE", juce::dontSendNotification);
+    overdriveLabel.setFont(juce::FontOptions(11.0f));
+    overdriveLabel.setColour(juce::Label::textColourId, getTextColour());
+    overdriveLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    overdriveLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(overdriveLabel);
 
     // HPF slider
     hpfSlider.setSliderStyle(juce::Slider::LinearHorizontal);
