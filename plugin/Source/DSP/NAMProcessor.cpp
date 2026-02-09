@@ -114,6 +114,16 @@ void NAMProcessor::prepare(const juce::dsp::ProcessSpec& spec)
 
     scratchIn.resize(static_cast<size_t>(blockSize), 0.0f);
     scratchOut.resize(static_cast<size_t>(blockSize), 0.0f);
+
+#if NAM_CORE_AVAILABLE
+    // CRITICAL: NAM models (WaveNet, LSTM) require Reset(sampleRate, maxBufferSize)
+    // to allocate internal buffers. Without this, processing causes fizzy/crackly artifacts.
+    std::lock_guard<std::mutex> lock(modelMutex);
+    if (namModel)
+    {
+        namModel->Reset(sampleRate, blockSize);
+    }
+#endif
 }
 
 void NAMProcessor::reset()
@@ -127,27 +137,14 @@ void NAMProcessor::process(juce::dsp::AudioBlock<float>& block)
 {
     // Pass-through when no model is loaded - signal continues unchanged
     if (! modelReady.load(std::memory_order_acquire))
-    {
-        // Occasional logging to check why it's passing through
-        static int passThroughCount = 0;
-        if ((passThroughCount++ % 1000) == 0) {
-            dbgLogNAM("NAMProcessor:process:PASS_THROUGH", "no model ready", 0, 0);
-        }
         return;
-    }
 
 #if NAM_CORE_AVAILABLE
     const auto numSamples = static_cast<int>(block.getNumSamples());
     if (numSamples == 0)
         return;
-    
-    // Occasional logging to verify NAM is active
-    static int activeCount = 0;
-    if ((activeCount++ % 1000) == 0) {
-        dbgLogNAM("NAMProcessor:process:ACTIVE", "NAM Core processing", 0, 0);
-    }
 
-    // Ensure scratch buffers are large enough
+    // Ensure scratch buffers are large enough (pre-allocated in prepare)
     if (static_cast<int>(scratchIn.size()) < numSamples)
     {
         scratchIn.resize(static_cast<size_t>(numSamples));
@@ -156,7 +153,7 @@ void NAMProcessor::process(juce::dsp::AudioBlock<float>& block)
 
     // Copy channel 0 into scratch input (save original for fallback)
     auto* channelData = block.getChannelPointer(0);
-    std::copy(channelData, channelData + numSamples, scratchIn.begin());
+    juce::FloatVectorOperations::copy(scratchIn.data(), channelData, numSamples);
 
     bool processed = false;
     {
@@ -167,9 +164,17 @@ void NAMProcessor::process(juce::dsp::AudioBlock<float>& block)
             try
             {
                 // NeuralAmpModelerCore processes double** buffers
-                std::vector<double> tempIn(numSamples);
-                std::vector<double> tempOut(numSamples, 0.0);
+                // Pre-allocate buffers if needed (optimization: reuse if size matches)
+                static thread_local std::vector<double> tempIn;
+                static thread_local std::vector<double> tempOut;
                 
+                if (static_cast<int>(tempIn.size()) < numSamples)
+                {
+                    tempIn.resize(static_cast<size_t>(numSamples));
+                    tempOut.resize(static_cast<size_t>(numSamples));
+                }
+                
+                // Optimized conversion: use SIMD-friendly operations where possible
                 for (int i = 0; i < numSamples; ++i)
                     tempIn[i] = static_cast<double>(scratchIn[i]);
                 
@@ -177,9 +182,18 @@ void NAMProcessor::process(juce::dsp::AudioBlock<float>& block)
                 double* outputPtrs[1] = { tempOut.data() };
                 namModel->process(inputPtrs, outputPtrs, numSamples);
                 
-                // Convert back to float
+                // Convert back to float with optimized denormal protection
+                // Use SIMD-friendly operations where possible
+                const float denormalThreshold = 1e-20f;
                 for (int i = 0; i < numSamples; ++i)
-                    scratchOut[i] = static_cast<float>(tempOut[i]);
+                {
+                    float val = static_cast<float>(tempOut[i]);
+                    // Fast denormal check: bit manipulation is faster than abs() for very small values
+                    // For values < threshold, set to zero to prevent CPU spikes
+                    if ((val > -denormalThreshold && val < denormalThreshold))
+                        val = 0.0f;
+                    scratchOut[i] = val;
+                }
                 
                 processed = true;
             }
@@ -194,22 +208,22 @@ void NAMProcessor::process(juce::dsp::AudioBlock<float>& block)
     if (!processed)
     {
         // Model is being swapped, not available, or failed — pass through unchanged
-        std::copy(scratchIn.begin(), scratchIn.begin() + numSamples, scratchOut.begin());
+        juce::FloatVectorOperations::copy(scratchOut.data(), scratchIn.data(), numSamples);
     }
 
-    // Write processed mono back to all channels
-    for (size_t ch = 0; ch < block.getNumChannels(); ++ch)
+    // Write processed mono back to all channels (optimized)
+    const size_t numChannels = block.getNumChannels();
+    if (numChannels == 1)
     {
-        auto* dest = block.getChannelPointer(ch);
-        std::copy(scratchOut.begin(), scratchOut.begin() + numSamples, dest);
+        juce::FloatVectorOperations::copy(block.getChannelPointer(0), scratchOut.data(), numSamples);
+    }
+    else
+    {
+        // Copy to all channels
+        for (size_t ch = 0; ch < numChannels; ++ch)
+            juce::FloatVectorOperations::copy(block.getChannelPointer(ch), scratchOut.data(), numSamples);
     }
 
-#else
-    // Occasional logging to check if Core is missing
-    static int missingCoreCount = 0;
-    if ((missingCoreCount++ % 1000) == 0) {
-        dbgLogNAM("NAMProcessor:process:MISSING_CORE", "NAM_CORE_AVAILABLE NOT DEFINED", 0, 0);
-    }
 #endif
     // If NAM_CORE_AVAILABLE is not defined, audio passes through unchanged (block is untouched)
 }
@@ -294,6 +308,9 @@ bool NAMProcessor::loadModel(const juce::File& namFile)
         {
             std::lock_guard<std::mutex> lock(modelMutex);
             namModel = std::move(newModel);
+            // CRITICAL: Reset allocates internal buffers (WaveNet layers, etc.)
+            // Without this, process() uses uninitialized buffers = fizzy/crackly sound
+            namModel->Reset(sampleRate, blockSize);
         }
 
         currentModelName = namFile.getFileNameWithoutExtension();

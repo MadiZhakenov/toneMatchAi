@@ -77,6 +77,18 @@ private:
     juce::Label reverbSizeLabel;
     juce::Label reverbWetLabel;
     
+    // Noise Gate controls
+    juce::ToggleButton noiseGateEnabledButton;
+    juce::Slider noiseGateThresholdSlider;
+    juce::Slider noiseGateAttackSlider;
+    juce::Slider noiseGateReleaseSlider;
+    juce::Slider noiseGateRangeSlider;
+    juce::Label noiseGateLabel;
+    juce::Label noiseGateThresholdLabel;
+    juce::Label noiseGateAttackLabel;
+    juce::Label noiseGateReleaseLabel;
+    juce::Label noiseGateRangeLabel;
+    
     // Preset buttons
     juce::TextButton saveButton;
     juce::TextButton loadButton;
@@ -94,6 +106,11 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayMixAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> reverbSizeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> reverbWetAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> noiseGateEnabledAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> noiseGateThresholdAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> noiseGateAttackAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> noiseGateReleaseAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> noiseGateRangeAttachment;
 
     //==========================================================================
     void setupSectionA();

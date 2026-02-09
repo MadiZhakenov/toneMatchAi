@@ -205,9 +205,23 @@ private:
     juce::dsp::IIR::Coefficients<float>::Ptr hpf_coeffs;
     juce::dsp::IIR::Filter<float> lpf_filter;
     juce::dsp::IIR::Coefficients<float>::Ptr lpf_coeffs;
+    
+    // Aggressive high-pass filter for noise removal (before processing)
+    juce::dsp::IIR::Filter<float> aggressive_hpf;
+    juce::dsp::IIR::Coefficients<float>::Ptr aggressive_hpf_coeffs;
+    
+    // Cached filter parameters to avoid recalculating coefficients every block
+    float cachedPreEqGainDb = -999.0f;
+    float cachedPreEqFreq = -999.0f;
+    float cachedHpfFreq = -999.0f;
+    float cachedLpfFreq = -999.0f;
+    float cachedSampleRate = 0.0f;
 
     // Delay wet/dry mixing buffer
     juce::AudioBuffer<float> delay_dry_buffer;
+
+    // Noise Gate state
+    float noiseGateEnvelope = 0.0f;  // Current envelope value (0.0 to 1.0)
 
     // Current IR name (for UI display)
     juce::String currentIRName;

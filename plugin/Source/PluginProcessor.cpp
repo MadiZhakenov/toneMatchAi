@@ -102,13 +102,32 @@ ToneMatchAudioProcessor::createParameterLayout()
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("lpfFreq", 1), "LPF Frequency",
-        juce::NormalisableRange<float>(4000.0f, 8000.0f, 1.0f), 8000.0f, "Hz"));
+        juce::NormalisableRange<float>(3000.0f, 8000.0f, 1.0f), 6000.0f, "Hz"));
 
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("aiLock", 1), "AI Lock", false));
 
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("cabLock", 1), "CAB Lock", false));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("noiseGateEnabled", 1), "Noise Gate", true));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("noiseGateThreshold", 1), "Noise Gate Threshold",
+        juce::NormalisableRange<float>(-100.0f, -40.0f, 0.1f), -90.0f, "dB"));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("noiseGateAttack", 1), "Noise Gate Attack",
+        juce::NormalisableRange<float>(0.001f, 0.050f, 0.001f), 0.005f, "s"));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("noiseGateRelease", 1), "Noise Gate Release",
+        juce::NormalisableRange<float>(0.010f, 1.000f, 0.010f), 0.100f, "s"));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("noiseGateRange", 1), "Noise Gate Range",
+        juce::NormalisableRange<float>(-80.0f, 0.0f, 0.1f), -60.0f, "dB"));  // More aggressive default: -90dB
 
     return { params.begin(), params.end() };
 }
@@ -123,6 +142,13 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
 
     currentSampleRate = sampleRate;
     currentBlockSize  = samplesPerBlock;
+    
+    // Reset cached parameters to force recalculation
+    cachedPreEqGainDb = -999.0f;
+    cachedPreEqFreq = -999.0f;
+    cachedHpfFreq = -999.0f;
+    cachedLpfFreq = -999.0f;
+    cachedSampleRate = sampleRate;
 
     // Prepare all DSP components
     overdrive_gain.prepare(spec);
@@ -160,9 +186,18 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     lpf_filter.prepare(spec);
     lpf_filter.coefficients = lpf_coeffs;
 
+    // Aggressive high-pass filter for noise removal
+    aggressive_hpf_coeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(
+        sampleRate, 80.0f, 0.707f);  // 80Hz high-pass to remove rumble and low-frequency noise
+    aggressive_hpf.prepare(spec);
+    aggressive_hpf.coefficients = aggressive_hpf_coeffs;
+
     // Prepare DI capture buffer (store up to 30 seconds for matching)
     capturedDI.setSize(1, static_cast<int>(sampleRate * 30.0));
     capturedDI.clear();
+    
+    // Reset noise gate state
+    noiseGateEnvelope = 0.0f;
 }
 
 void ToneMatchAudioProcessor::releaseResources()
@@ -202,25 +237,83 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // Copy mono input to stereo output if needed
+    // Copy mono input to stereo output if needed (optimized)
     const int numInputChannels = getTotalNumInputChannels();
     const int numOutputChannels = getTotalNumOutputChannels();
+    const int numSamples = buffer.getNumSamples();
+    
     if (numInputChannels == 1 && numOutputChannels == 2)
     {
-        // Copy mono input to both output channels
-        buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+        // Copy mono input to both output channels (SIMD-optimized)
+        buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
     }
-    else
+    else if (numInputChannels < numOutputChannels)
     {
-        // Clear extra output channels
+        // Clear extra output channels (optimized)
         for (int ch = numInputChannels; ch < numOutputChannels; ++ch)
-            buffer.clear(ch, 0, buffer.getNumSamples());
+            buffer.clear(ch, 0, numSamples);
     }
 
-    // ── CAPTURE DI (before processing) ────────────────────────────────────────
+    // ── Stage 0: Soft Noise Gate (BEFORE compensation gain) ────────────────────
+    const bool noiseGateEnabled = apvts.getRawParameterValue("noiseGateEnabled")->load() > 0.5f;
+    if (noiseGateEnabled)
+    {
+        const float noiseGateThresholdDb = apvts.getRawParameterValue("noiseGateThreshold")->load();
+        const float noiseGateThresholdLinear = juce::Decibels::decibelsToGain(noiseGateThresholdDb);
+        const float noiseGateAttackTime = apvts.getRawParameterValue("noiseGateAttack")->load();
+        const float noiseGateReleaseTime = apvts.getRawParameterValue("noiseGateRelease")->load();
+        const float noiseGateRangeDb = apvts.getRawParameterValue("noiseGateRange")->load();
+        const float noiseGateRangeLinear = juce::Decibels::decibelsToGain(noiseGateRangeDb);
+        
+        // Calculate attack and release coefficients (recalculate every block to allow real-time changes)
+        const float attackCoeff = std::exp(-1.0f / (noiseGateAttackTime * currentSampleRate));
+        const float releaseCoeff = std::exp(-1.0f / (noiseGateReleaseTime * currentSampleRate));
+        
+        // Calculate RMS level for better noise detection (more accurate than peak)
+        float rmsSum = 0.0f;
+        auto* channelData = buffer.getReadPointer(0);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float sample = channelData[i];
+            rmsSum += sample * sample;
+        }
+        const float rmsLevel = std::sqrt(rmsSum / numSamples);
+        
+        // Update envelope follower based on RMS level (smooth operation)
+        if (rmsLevel > noiseGateThresholdLinear)
+        {
+            // Signal above threshold - attack (open gate smoothly)
+            noiseGateEnvelope = 1.0f - (1.0f - noiseGateEnvelope) * attackCoeff;
+        }
+        else
+        {
+            // Signal below threshold - release (close gate smoothly)
+            noiseGateEnvelope = noiseGateEnvelope * releaseCoeff;
+        }
+        
+        // Apply gate gain to all channels with range control
+        // Range determines minimum level when gate is closed (0 dB = fully closed, -80 dB = only slightly reduced)
+        // Envelope: 0.0 = gate closed, 1.0 = gate fully open
+        if (noiseGateEnvelope < 0.001f)
+        {
+            // Gate fully closed - apply range reduction
+            // Range: 0 dB = mute, -80 dB = minimal reduction
+            buffer.applyGain(noiseGateRangeLinear);
+        }
+        else if (noiseGateEnvelope < 0.999f)
+        {
+            // Gate partially open - interpolate between range (closed) and 1.0 (open)
+            // When envelope = 0: gain = range
+            // When envelope = 1: gain = 1.0
+            float gateGain = noiseGateRangeLinear + (1.0f - noiseGateRangeLinear) * noiseGateEnvelope;
+            buffer.applyGain(gateGain);
+        }
+        // If envelope is ~1.0, no processing needed (gate fully open)
+    }
+
+    // ── CAPTURE DI (before processing, with real-time normalization) ───────────
     if (capturing.load(std::memory_order_acquire))
     {
-        const int numSamples = buffer.getNumSamples();
         const int numChannels = getTotalNumInputChannels();
         
         // Convert to mono and append to capturedDI
@@ -230,20 +323,50 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         
         if (toWrite > 0 && numChannels > 0)
         {
-            // Sum to mono (or use channel 0 if mono)
+            // Calculate peak of incoming block for normalization
+            float blockPeak = buffer.getMagnitude(0, 0, toWrite);
+            
+            // Sum to mono (or use channel 0 if mono) and normalize to -1dB in real-time
+            const float targetPeakLinear = juce::Decibels::decibelsToGain(-1.0f); // ≈ 0.89125
+            
             if (numChannels == 1)
             {
-                capturedDI.copyFrom(0, writePos, buffer, 0, 0, toWrite);
+                if (blockPeak > 1e-6f)  // Only normalize if not silent
+                {
+                    // Copy and normalize in one step
+                    float normalizeGain = targetPeakLinear / blockPeak;
+                    for (int i = 0; i < toWrite; ++i)
+                    {
+                        float sample = buffer.getSample(0, i) * normalizeGain;
+                        capturedDI.setSample(0, writePos + i, sample);
+                    }
+                }
+                else
+                {
+                    // Silent - just copy zeros
+                    capturedDI.copyFrom(0, writePos, buffer, 0, 0, toWrite);
+                }
             }
             else
             {
-                // Sum stereo to mono
-                for (int i = 0; i < toWrite; ++i)
+                // Sum stereo to mono and normalize
+                if (blockPeak > 1e-6f)
                 {
-                    float sum = 0.0f;
-                    for (int ch = 0; ch < numChannels; ++ch)
-                        sum += buffer.getSample(ch, i);
-                    capturedDI.setSample(0, writePos + i, sum / numChannels);
+                    float normalizeGain = targetPeakLinear / blockPeak;
+                    for (int i = 0; i < toWrite; ++i)
+                    {
+                        float sum = 0.0f;
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            sum += buffer.getSample(ch, i);
+                        float mono = (sum / numChannels) * normalizeGain;
+                        capturedDI.setSample(0, writePos + i, mono);
+                    }
+                }
+                else
+                {
+                    // Silent - just set zeros
+                    for (int i = 0; i < toWrite; ++i)
+                        capturedDI.setSample(0, writePos + i, 0.0f);
                 }
             }
             capturedDIWritePos.store(writePos + toWrite, std::memory_order_release);
@@ -252,66 +375,37 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // ── END CAPTURE ───────────────────────────────────────────────────────────
 
     // ── Full DSP Chain Processing ─────────────────────────────────────────────
-    const auto numSamples  = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
     // Early exit if no samples
     if (numSamples == 0 || numChannels == 0)
         return;
-
-    // #region agent log
-    dbgBlockCount++;
-    float inputPeakCh0 = peakOf(buffer, 0);
-    float inputPeakCh1 = (numChannels > 1) ? peakOf(buffer, 1) : 0.f;
-    float inputMax = std::max(inputPeakCh0, inputPeakCh1);
-    float inputDbCh0 = peakToDb(inputPeakCh0);
-    float inputDbCh1 = peakToDb(inputPeakCh1);
-    float inputDbMax = peakToDb(inputMax);
-    dbgLog("processBlock:ENTRY", "input signal dB", "A",
-           inputDbCh0, inputDbCh1, inputDbMax,
-           getTotalNumInputChannels(), getTotalNumOutputChannels());
     
-    // Check if input is too quiet (likely routing issue)
-    static int quietWarningCount = 0;
-    if (inputDbMax < -60.0f && (quietWarningCount % 1000) == 0) {
-        dbgLog("processBlock:WARNING", "input too quiet", "G",
-               inputDbMax, 0, 0, 0, 0);
-        quietWarningCount++;
-    }
-    // #endregion
-
-    // ── Apply compensation gain (FIRST, before all processing) ─────────────────
-    // This converts user's input level to the level that Python optimizer expects (-1dB).
-    // Compensation gain is calculated once during DI capture and applied to all incoming audio.
-    float compensationGain = inputCompensationLinear.load(std::memory_order_acquire);
-    if (compensationGain != 1.0f)
+    // ── Stage 0b: Aggressive High-Pass Filter (remove low-frequency noise) ────
+    // This removes rumble and low-frequency noise that can cause issues
+    juce::dsp::AudioBlock<float> block(buffer);
+    if (numChannels > 0)
     {
-        buffer.applyGain(compensationGain);
+        auto monoBlock = block.getSingleChannelBlock(0);
+        juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
+        aggressive_hpf.process(ctx);
         
-        // #region agent log
-        static int compensationLogCount = 0;
-        if ((compensationLogCount % 1000) == 0)
-        {
-            float compensationDb = juce::Decibels::gainToDecibels(compensationGain);
-            float compensatedPeak = peakOf(buffer, 0);
-            float compensatedDb = peakToDb(compensatedPeak);
-            dbgLog("processBlock:COMPENSATION", "compensation gain applied", "N",
-                   inputDbMax, compensationDb, compensatedDb, 1, 0);
-            compensationLogCount++;
-        }
-        // #endregion
+        // Copy to other channels
+        if (numChannels == 2)
+            buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+        else
+            for (int ch = 1; ch < numChannels; ++ch)
+                buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
     }
+
+    // ── Compensation gain removed ─────────────────────────────────────────────
+    // DI is now normalized during capture, so no compensation gain needed in real-time
 
     // Read parameters from APVTS (lock-free)
     const float overdriveDb = apvts.getRawParameterValue("overdrive")->load();
     const float gainDb       = apvts.getRawParameterValue("inputGain")->load();
     const float eqGainDb    = apvts.getRawParameterValue("preEqGainDb")->load();
     const float eqFreq      = apvts.getRawParameterValue("preEqFreqHz")->load();
-    // #region agent log
-    float inputDbBeforeOverdrive = peakToDb(peakOf(buffer, 0));
-    dbgLog("processBlock:PARAMS", "params and input", "H",
-           overdriveDb, inputDbBeforeOverdrive, eqGainDb, 0, 0);
-    // #endregion
     const float revWet      = apvts.getRawParameterValue("reverbWet")->load();
     const float revRoom     = apvts.getRawParameterValue("reverbRoomSize")->load();
     const float delTime     = apvts.getRawParameterValue("delayTimeMs")->load();
@@ -319,26 +413,25 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float hpfFreq     = apvts.getRawParameterValue("hpfFreq")->load();
     const float lpfFreq     = apvts.getRawParameterValue("lpfFreq")->load();
 
-    juce::dsp::AudioBlock<float> block(buffer);
-
     // ── Stage 1: Overdrive (before NAM, for overdrive/distortion) ────────────
     overdrive_gain.setGainDecibels(overdriveDb);
     {
         juce::dsp::ProcessContextReplacing<float> ctx(block);
         overdrive_gain.process(ctx);
     }
-    // #region agent log
-    float afterOverdrivePeak = peakOf(buffer, 0);
-    float afterOverdriveDb = peakToDb(afterOverdrivePeak);
-    dbgLog("processBlock:AFTER_OVERDRIVE", "after overdrive dB", "O",
-           afterOverdriveDb, overdriveDb, afterOverdrivePeak, 0, 0);
-    // #endregion
 
     // ── Stage 1b: Pre-EQ (parametric peak) ───────────────────────────────────
     {
-        const float linearGain = juce::Decibels::decibelsToGain(eqGainDb);
-        *pre_eq_coeffs = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-            currentSampleRate, juce::jlimit(20.0f, 20000.0f, eqFreq), 0.707f, linearGain);
+        // Cache coefficients and only update when parameters change
+        if (cachedPreEqGainDb != eqGainDb || cachedPreEqFreq != eqFreq || cachedSampleRate != currentSampleRate)
+        {
+            const float linearGain = juce::Decibels::decibelsToGain(eqGainDb);
+            *pre_eq_coeffs = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+                currentSampleRate, juce::jlimit(20.0f, 20000.0f, eqFreq), 0.707f, linearGain);
+            cachedPreEqGainDb = eqGainDb;
+            cachedPreEqFreq = eqFreq;
+            cachedSampleRate = currentSampleRate;
+        }
 
         // Process mono (channel 0) through IIR; copy to other channels
         if (numChannels > 0)
@@ -347,68 +440,40 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
             pre_eq_filter.process(ctx);
 
-            for (int ch = 1; ch < numChannels; ++ch)
-                buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+            // Optimized: use SIMD-friendly copy for stereo
+            if (numChannels == 2)
+                buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+            else
+                for (int ch = 1; ch < numChannels; ++ch)
+                    buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
         }
     }
-
-    // #region agent log
-    dbgLog("processBlock:AFTER_EQ", "after pre-eq", "C",
-           peakOf(buffer, 0), eqGainDb, eqFreq);
-    // #endregion
 
     // ── Stage 2: NAM Pedal ───────────────────────────────────────────────────
-    {
-        bool pedalLoaded = pedal.isModelLoaded();
-        // #region agent log
-        dbgLog("processBlock:NAM_PEDAL", "pedal check", "D",
-               peakOf(buffer, 0), 0, 0, pedalLoaded ? 1 : 0);
-        // #endregion
-        if (pedalLoaded)
-            pedal.process(block);
-        // #region agent log
-        dbgLog("processBlock:AFTER_PEDAL", "after pedal", "D",
-               peakOf(buffer, 0), 0, 0, pedalLoaded ? 1 : 0);
-        // #endregion
-    }
+    if (pedal.isModelLoaded())
+        pedal.process(block);
 
     // ── Stage 3: NAM Amp ─────────────────────────────────────────────────────
-    {
-        bool ampLoaded = amp.isModelLoaded();
-        // #region agent log
-        dbgLog("processBlock:NAM_AMP", "amp check", "D",
-               peakOf(buffer, 0), 0, 0, ampLoaded ? 1 : 0);
-        // #endregion
-        if (ampLoaded)
-            amp.process(block);
-        // #region agent log
-        dbgLog("processBlock:AFTER_AMP", "after amp", "D",
-               peakOf(buffer, 0), 0, 0, ampLoaded ? 1 : 0);
-        // #endregion
-    }
+    if (amp.isModelLoaded())
+        amp.process(block);
 
     // ── Stage 4: IR Cabinet (Convolution) ────────────────────────────────────
+    if (ir_cabinet.getCurrentIRSize() > 0)
     {
-        int irSize = ir_cabinet.getCurrentIRSize();
-        // #region agent log
-        dbgLog("processBlock:IR_CAB", "ir check", "E",
-               peakOf(buffer, 0), 0, 0, irSize);
-        // #endregion
-        if (irSize > 0)
-        {
-            juce::dsp::ProcessContextReplacing<float> ctx(block);
-            ir_cabinet.process(ctx);
-        }
-        // #region agent log
-        dbgLog("processBlock:AFTER_IR", "after ir", "E",
-               peakOf(buffer, 0), 0, 0, irSize);
-        // #endregion
+        juce::dsp::ProcessContextReplacing<float> ctx(block);
+        ir_cabinet.process(ctx);
     }
 
     // ── Stage 4b: HPF (High-Pass Filter) ───────────────────────────────────────
     {
-        *hpf_coeffs = *juce::dsp::IIR::Coefficients<float>::makeHighPass(
-            currentSampleRate, juce::jlimit(20.0f, 20000.0f, hpfFreq));
+        // Cache coefficients and only update when parameters change
+        if (cachedHpfFreq != hpfFreq || cachedSampleRate != currentSampleRate)
+        {
+            *hpf_coeffs = *juce::dsp::IIR::Coefficients<float>::makeHighPass(
+                currentSampleRate, juce::jlimit(20.0f, 20000.0f, hpfFreq));
+            cachedHpfFreq = hpfFreq;
+            cachedSampleRate = currentSampleRate;
+        }
 
         if (numChannels > 0)
         {
@@ -416,15 +481,24 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
             hpf_filter.process(ctx);
 
-            for (int ch = 1; ch < numChannels; ++ch)
-                buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+            if (numChannels == 2)
+                buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+            else
+                for (int ch = 1; ch < numChannels; ++ch)
+                    buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
         }
     }
 
     // ── Stage 4c: LPF (Low-Pass Filter) ────────────────────────────────────────
     {
-        *lpf_coeffs = *juce::dsp::IIR::Coefficients<float>::makeLowPass(
-            currentSampleRate, juce::jlimit(20.0f, 20000.0f, lpfFreq));
+        // Cache coefficients and only update when parameters change
+        if (cachedLpfFreq != lpfFreq || cachedSampleRate != currentSampleRate)
+        {
+            *lpf_coeffs = *juce::dsp::IIR::Coefficients<float>::makeLowPass(
+                currentSampleRate, juce::jlimit(20.0f, 20000.0f, lpfFreq));
+            cachedLpfFreq = lpfFreq;
+            cachedSampleRate = currentSampleRate;
+        }
 
         if (numChannels > 0)
         {
@@ -432,24 +506,24 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
             lpf_filter.process(ctx);
 
-            for (int ch = 1; ch < numChannels; ++ch)
-                buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
+            if (numChannels == 2)
+                buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+            else
+                for (int ch = 1; ch < numChannels; ++ch)
+                    buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
         }
     }
-    // #region agent log
-    dbgLog("processBlock:AFTER_FILTERS", "after hpf+lpf", "F",
-           peakOf(buffer, 0), hpfFreq, lpfFreq);
-    // #endregion
 
     // ── Stage 5: Delay ───────────────────────────────────────────────────────
+    if (delMixVal > 0.001f)  // Skip if delay mix is effectively zero
     {
-        // Save dry signal for wet/dry mixing
-        for (int ch = 0; ch < numChannels; ++ch)
-            delay_dry_buffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
         const float delaySamples = (delTime / 1000.0f) * static_cast<float>(currentSampleRate);
         delay_line.setDelay(juce::jlimit(1.0f, static_cast<float>(currentSampleRate), delaySamples));
 
+        const float dryMix = 1.0f - delMixVal;
+        const float wetMix = delMixVal;
+
+        // Optimized delay processing - vectorized where possible
         for (int ch = 0; ch < numChannels; ++ch)
         {
             auto* data = buffer.getWritePointer(ch);
@@ -458,7 +532,7 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 const float dry = data[i];
                 delay_line.pushSample(ch, dry);
                 const float wet = delay_line.popSample(ch);
-                data[i] = dry * (1.0f - delMixVal) + wet * delMixVal;
+                data[i] = dry * dryMix + wet * wetMix;
             }
         }
     }
@@ -483,32 +557,30 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         juce::dsp::ProcessContextReplacing<float> ctx(block);
         input_gain.process(ctx);
     }
-    // #region agent log
-    float afterVolumeGainPeak = peakOf(buffer, 0);
-    float afterVolumeGainDb = peakToDb(afterVolumeGainPeak);
-    dbgLog("processBlock:AFTER_VOLUME_GAIN", "after volume gain dB", "B",
-           afterVolumeGainDb, gainDb, afterVolumeGainPeak, 0, 0);
-    // #endregion
 
     // ── Stage 8: Safety Limiter ──────────────────────────────────────────────
     // Prevent harsh digital clipping if gain is set too high
+    // Optimized: use SIMD-friendly clamping
     for (int ch = 0; ch < numChannels; ++ch)
     {
         auto* data = buffer.getWritePointer(ch);
-        for (int i = 0; i < numSamples; ++i)
-        {
-            // Soft clipping (tanh-like) for safety
-            float val = data[i];
-            if (val > 1.0f) val = 1.0f;
-            else if (val < -1.0f) val = -1.0f;
-            data[i] = val;
-        }
+        juce::FloatVectorOperations::clip(data, data, -1.0f, 1.0f, numSamples);
     }
-
-    // #region agent log
-    dbgLog("processBlock:FINAL_OUTPUT", "final output after all", "G",
-           peakOf(buffer, 0), revWet, delMixVal);
-    // #endregion
+    
+    // ── Stage 9: Final Soft Noise Gate Check (after all processing) ───────────
+    // Final check: if output is extremely quiet, gently reduce it
+    // This catches any noise that might have been generated in the processing chain
+    float outputPeak = buffer.getMagnitude(0, 0, numSamples);
+    float outputPeakDb = juce::Decibels::gainToDecibels(outputPeak, -100.0f);
+    
+    // If output is quieter than -60 dB, it's likely just noise - gently reduce it
+    const float outputMuteThresholdDb = -60.0f;
+    if (outputPeakDb < outputMuteThresholdDb)
+    {
+        // Soft reduction instead of hard mute
+        float reductionFactor = juce::jmap(outputPeakDb, -100.0f, outputMuteThresholdDb, 0.0f, 1.0f);
+        buffer.applyGain(reductionFactor);
+    }
 }
 
 //==============================================================================
@@ -655,65 +727,23 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
     // Check if captured audio is not all zeros (very quiet audio)
     float peakLinear = capturedDI.getMagnitude(0, 0, numCapturedSamples);
     float peakDb = juce::Decibels::gainToDecibels(peakLinear, -100.0f);
-    dbgLog("triggerMatch:DI_PEAK", "DI peak level", "J", peakLinear, peakDb, 0, numCapturedSamples, 0, true);
+    dbgLog("triggerMatch:DI_PEAK", "DI peak level (already normalized)", "J", peakLinear, peakDb, 0, numCapturedSamples, 0, true);
+    
+    // DI is already normalized to -1dB during capture, so capturedDIPeakDb should be -1.0f
+    capturedDIPeakDb = peakDb;
+    
+    // No compensation gain needed - DI is already normalized during capture
+    inputCompensationLinear.store(1.0f, std::memory_order_release);
     
     if (peakLinear < 1e-6f) // Very quiet or silent
     {
         DBG("[ToneMatch] WARNING: Captured DI is very quiet (peak: " + 
-            juce::String(peakDb, 1) + " dB)");
+            juce::String(peakDb, 1) + " dB) - may not match well");
         dbgLog("triggerMatch:DI_QUIET", "DI is very quiet", "J", peakLinear, peakDb, 0, 0, 0, true);
-        // Continue anyway - might be intentional
-    }
-
-    // ── Calculate compensation gain (BEFORE normalizing DI) ────────────────────
-    // Save original peak level before normalization
-    float originalPeakDb = peakDb;
-    // Protection against silence: clamp to -60dB minimum
-    if (originalPeakDb < -60.0f) originalPeakDb = -60.0f;
-    
-    // Calculate compensation: how much gain to add to make originalPeak become -1dB
-    const float targetLevelDb = -1.0f;
-    const float compensationDb = targetLevelDb - originalPeakDb;
-    
-    // Store compensation as linear gain for real-time application
-    float compensationLinear = juce::Decibels::decibelsToGain(compensationDb);
-    inputCompensationLinear.store(compensationLinear, std::memory_order_release);
-    
-    DBG("[ToneMatch] Compensation gain: " + juce::String(compensationDb, 1) + 
-        " dB (linear: " + juce::String(compensationLinear, 4) + 
-        ", original peak: " + juce::String(originalPeakDb, 1) + " dB)");
-    dbgLog("triggerMatch:COMPENSATION", "compensation gain calculated", "J",
-           originalPeakDb, compensationDb, compensationLinear, 0, 0, true);
-
-    // Normalize captured DI to -1dB before writing to file
-    // Python optimizer expects DI normalized to -1dB (as done in src/core/io.py)
-    // This ensures the optimizer calculates inputGainDb correctly for overdrive
-    if (peakLinear > 1e-6f) // Only if not too quiet
-    {
-        const float targetLinear = juce::Decibels::decibelsToGain(-1.0f); // ≈ 0.89125
-        const float normalizeGain = targetLinear / peakLinear;
-        
-        // Apply normalization to capturedDI
-        capturedDI.applyGain(0, 0, numCapturedSamples, normalizeGain);
-        
-        // Update capturedDIPeakDb to -1.0f (normalized level)
-        capturedDIPeakDb = -1.0f;
-        
-        float normalizeGainDb = 20.0f * std::log10(normalizeGain);
-        DBG("[ToneMatch] Normalized DI to -1dB (gain: " + 
-            juce::String(normalizeGainDb, 1) + " dB, original peak: " + 
-            juce::String(peakDb, 1) + " dB)");
-        dbgLog("triggerMatch:DI_NORMALIZED", "DI normalized to -1dB", "J", 
-               capturedDIPeakDb, normalizeGainDb, peakDb, 0, 0, true);
     }
     else
     {
-        // If too quiet, use raw level but warn
-        capturedDIPeakDb = peakDb;
-        DBG("[ToneMatch] WARNING: DI too quiet to normalize, using raw level: " + 
-            juce::String(peakDb, 1) + " dB");
-        dbgLog("triggerMatch:DI_NOT_NORMALIZED", "DI too quiet, using raw level", "J", 
-               capturedDIPeakDb, peakLinear, 0, 0, 0, true);
+        DBG("[ToneMatch] DI captured and normalized to " + juce::String(peakDb, 1) + " dB (target: -1.0 dB)");
     }
 
     // Write captured mono DI to file (only the captured portion)

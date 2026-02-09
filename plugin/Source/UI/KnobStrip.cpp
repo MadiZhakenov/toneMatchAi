@@ -68,3 +68,5 @@ void KnobStrip::resized()
 
 
 
+
+

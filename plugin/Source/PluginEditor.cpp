@@ -15,7 +15,7 @@ ToneMatchAudioProcessorEditor::ToneMatchAudioProcessorEditor(
       processorRef(p),
       progressBar(progressValue)
 {
-    setSize(700, 740);  // Increased height for Overdrive slider
+    setSize(700, 900);  // Increased height for Noise Gate controls
 
     // Subscribe to progress state changes
     processorRef.getProgressState().addListener(this);
@@ -172,6 +172,42 @@ void ToneMatchAudioProcessorEditor::resized()
         auto reverbWetArea = sectionC.removeFromLeft(sliderWidth);
         reverbWetLabel.setBounds(reverbWetArea.removeFromTop(18));
         reverbWetSlider.setBounds(reverbWetArea.withHeight(sliderHeight));
+        
+        sectionC.removeFromTop(15);
+        
+        // Noise Gate section
+        noiseGateLabel.setBounds(sectionC.removeFromTop(20));
+        sectionC.removeFromTop(5);
+        
+        // Noise Gate Enabled button
+        noiseGateEnabledButton.setBounds(sectionC.removeFromTop(25).removeFromLeft(100));
+        sectionC.removeFromTop(8);
+        
+        // Noise Gate sliders (2 rows of 2 sliders each)
+        const int ngSliderHeight = 60;
+        const int ngSliderWidth = (totalWidth - spacing) / 2;
+        
+        // First row: Threshold and Attack
+        auto ngRow1 = sectionC.removeFromTop(ngSliderHeight + 20);
+        auto ngThresholdArea = ngRow1.removeFromLeft(ngSliderWidth);
+        noiseGateThresholdLabel.setBounds(ngThresholdArea.removeFromTop(18));
+        noiseGateThresholdSlider.setBounds(ngThresholdArea.withHeight(ngSliderHeight));
+        ngRow1.removeFromLeft(spacing);
+        auto ngAttackArea = ngRow1;
+        noiseGateAttackLabel.setBounds(ngAttackArea.removeFromTop(18));
+        noiseGateAttackSlider.setBounds(ngAttackArea.withHeight(ngSliderHeight));
+        
+        sectionC.removeFromTop(8);
+        
+        // Second row: Release and Range
+        auto ngRow2 = sectionC.removeFromTop(ngSliderHeight + 20);
+        auto ngReleaseArea = ngRow2.removeFromLeft(ngSliderWidth);
+        noiseGateReleaseLabel.setBounds(ngReleaseArea.removeFromTop(18));
+        noiseGateReleaseSlider.setBounds(ngReleaseArea.withHeight(ngSliderHeight));
+        ngRow2.removeFromLeft(spacing);
+        auto ngRangeArea = ngRow2;
+        noiseGateRangeLabel.setBounds(ngRangeArea.removeFromTop(18));
+        noiseGateRangeSlider.setBounds(ngRangeArea.withHeight(ngSliderHeight));
     }
 }
 
@@ -596,6 +632,98 @@ void ToneMatchAudioProcessorEditor::setupSectionC()
     reverbWetLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     reverbWetLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(reverbWetLabel);
+
+    // NOISE GATE section
+    noiseGateLabel.setText("NOISE GATE", juce::dontSendNotification);
+    noiseGateLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    noiseGateLabel.setColour(juce::Label::textColourId, getAccentColour());
+    noiseGateLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(noiseGateLabel);
+
+    // Noise Gate Enabled button
+    noiseGateEnabledButton.setButtonText("ENABLED");
+    noiseGateEnabledButton.setColour(juce::ToggleButton::textColourId, getTextColour());
+    noiseGateEnabledButton.setColour(juce::ToggleButton::tickColourId, getAccentColour());
+    noiseGateEnabledButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xFF666666));
+    noiseGateEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        apvts, "noiseGateEnabled", noiseGateEnabledButton);
+    addAndMakeVisible(noiseGateEnabledButton);
+
+    // Noise Gate Threshold slider
+    noiseGateThresholdSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    noiseGateThresholdSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
+    noiseGateThresholdSlider.setColour(juce::Slider::trackColourId, getAccentColour());
+    noiseGateThresholdSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
+    noiseGateThresholdSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
+    noiseGateThresholdSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
+    noiseGateThresholdSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateThreshold", noiseGateThresholdSlider);
+    addAndMakeVisible(noiseGateThresholdSlider);
+
+    noiseGateThresholdLabel.setText("THRESHOLD", juce::dontSendNotification);
+    noiseGateThresholdLabel.setFont(juce::FontOptions(11.0f));
+    noiseGateThresholdLabel.setColour(juce::Label::textColourId, getTextColour());
+    noiseGateThresholdLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateThresholdLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(noiseGateThresholdLabel);
+
+    // Noise Gate Attack slider
+    noiseGateAttackSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    noiseGateAttackSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
+    noiseGateAttackSlider.setColour(juce::Slider::trackColourId, getAccentColour());
+    noiseGateAttackSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
+    noiseGateAttackSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
+    noiseGateAttackSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
+    noiseGateAttackSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateAttackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateAttack", noiseGateAttackSlider);
+    addAndMakeVisible(noiseGateAttackSlider);
+
+    noiseGateAttackLabel.setText("ATTACK", juce::dontSendNotification);
+    noiseGateAttackLabel.setFont(juce::FontOptions(11.0f));
+    noiseGateAttackLabel.setColour(juce::Label::textColourId, getTextColour());
+    noiseGateAttackLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateAttackLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(noiseGateAttackLabel);
+
+    // Noise Gate Release slider
+    noiseGateReleaseSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    noiseGateReleaseSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
+    noiseGateReleaseSlider.setColour(juce::Slider::trackColourId, getAccentColour());
+    noiseGateReleaseSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
+    noiseGateReleaseSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
+    noiseGateReleaseSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
+    noiseGateReleaseSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateReleaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateRelease", noiseGateReleaseSlider);
+    addAndMakeVisible(noiseGateReleaseSlider);
+
+    noiseGateReleaseLabel.setText("RELEASE", juce::dontSendNotification);
+    noiseGateReleaseLabel.setFont(juce::FontOptions(11.0f));
+    noiseGateReleaseLabel.setColour(juce::Label::textColourId, getTextColour());
+    noiseGateReleaseLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateReleaseLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(noiseGateReleaseLabel);
+
+    // Noise Gate Range slider
+    noiseGateRangeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    noiseGateRangeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
+    noiseGateRangeSlider.setColour(juce::Slider::trackColourId, getAccentColour());
+    noiseGateRangeSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
+    noiseGateRangeSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
+    noiseGateRangeSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
+    noiseGateRangeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateRangeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateRange", noiseGateRangeSlider);
+    addAndMakeVisible(noiseGateRangeSlider);
+
+    noiseGateRangeLabel.setText("RANGE", juce::dontSendNotification);
+    noiseGateRangeLabel.setFont(juce::FontOptions(11.0f));
+    noiseGateRangeLabel.setColour(juce::Label::textColourId, getTextColour());
+    noiseGateRangeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateRangeLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(noiseGateRangeLabel);
 
     // Save button
     saveButton.setButtonText("SAVE");
