@@ -109,6 +109,16 @@ void ToneMatchAudioProcessorEditor::resized()
         gainSlider.setBounds(sectionB.removeFromTop(30));
         sectionB.removeFromTop(5);
         
+        // INPUT TRIM
+        inputTrimLabel.setBounds(sectionB.removeFromTop(16));
+        sectionB.removeFromTop(2);
+        inputTrimSlider.setBounds(sectionB.removeFromTop(30));
+        sectionB.removeFromTop(5);
+        
+        // AUTO-COMPENSATION indicator (small label)
+        autoCompensationLabel.setBounds(sectionB.removeFromTop(16));
+        sectionB.removeFromTop(5);
+        
         // OVERDRIVE
         overdriveLabel.setBounds(sectionB.removeFromTop(16));
         sectionB.removeFromTop(2);
@@ -289,6 +299,19 @@ void ToneMatchAudioProcessorEditor::timerCallback()
                 }
             });
         }
+    }
+
+    // Update Auto-Compensation indicator
+    float autoCompDb = processorRef.getAutoCompensationDb();
+    if (std::abs(autoCompDb) < 0.1f)
+    {
+        autoCompensationLabel.setText("Auto-Boost: 0.0 dB", juce::dontSendNotification);
+    }
+    else
+    {
+        autoCompensationLabel.setText(juce::String("Auto-Boost: ") + 
+            (autoCompDb >= 0.0f ? "+" : "") + 
+            juce::String(autoCompDb, 1) + " dB", juce::dontSendNotification);
     }
 
     updateRigDisplay();
@@ -494,6 +517,33 @@ void ToneMatchAudioProcessorEditor::setupSectionB()
     gainLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     gainLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(gainLabel);
+
+    // INPUT TRIM slider
+    inputTrimSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    inputTrimSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    inputTrimSlider.setColour(juce::Slider::trackColourId, getAccentColour());
+    inputTrimSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
+    inputTrimSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
+    inputTrimSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
+    inputTrimSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    inputTrimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "inputTrim", inputTrimSlider);
+    addAndMakeVisible(inputTrimSlider);
+
+    inputTrimLabel.setText("INPUT TRIM", juce::dontSendNotification);
+    inputTrimLabel.setFont(juce::FontOptions(11.0f));
+    inputTrimLabel.setColour(juce::Label::textColourId, getTextColour());
+    inputTrimLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    inputTrimLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(inputTrimLabel);
+
+    // AUTO-COMPENSATION indicator
+    autoCompensationLabel.setText("Auto-Boost: 0.0 dB", juce::dontSendNotification);
+    autoCompensationLabel.setFont(juce::FontOptions(10.0f));
+    autoCompensationLabel.setColour(juce::Label::textColourId, getAccentColour());
+    autoCompensationLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    autoCompensationLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(autoCompensationLabel);
 
     // OVERDRIVE slider (for testing distortion)
     overdriveSlider.setSliderStyle(juce::Slider::LinearHorizontal);

@@ -10,6 +10,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include "DSP/NAMProcessor.h"
+#include "DSP/SimpleGate.h"
 #include "Bridge/PythonBridge.h"
 #include "Preset/PresetManager.h"
 
@@ -145,6 +146,9 @@ public:
     /** Get the total capacity of the DI buffer. */
     int getDIBufferSize() const { return capturedDI.getNumSamples(); }
 
+    /** Get current auto-compensation gain in dB (for UI display). */
+    float getAutoCompensationDb() const { return autoCompensationDb.load(std::memory_order_acquire); }
+
     //==========================================================================
     // Progress State Management
 
@@ -206,7 +210,20 @@ private:
     juce::dsp::IIR::Filter<float> lpf_filter;
     juce::dsp::IIR::Coefficients<float>::Ptr lpf_coeffs;
     
-    // Aggressive high-pass filter for noise removal (before processing)
+    // Input Stage: DC Block & Safety HPF (80Hz, Q=0.7) - FIRST in chain
+    juce::dsp::IIR::Filter<float> inputSafetyHPF;
+    juce::dsp::IIR::Coefficients<float>::Ptr inputSafetyHPFCoeffs;
+    
+    // Pre-NAM Noise Gate (before any gain)
+    SimpleGate preNAMNoiseGate;
+    
+    // Compensation Gain (RMS-based auto-compensation)
+    juce::dsp::Gain<float> compensationGain;
+    
+    // Input Trim (manual user adjustment after auto-compensation)
+    juce::dsp::Gain<float> inputTrimGain;
+    
+    // Aggressive high-pass filter for noise removal (before processing) - DEPRECATED, will be removed
     juce::dsp::IIR::Filter<float> aggressive_hpf;
     juce::dsp::IIR::Coefficients<float>::Ptr aggressive_hpf_coeffs;
     
@@ -250,10 +267,12 @@ private:
     std::atomic<bool> aiLockEnabled { false };
     std::atomic<bool> cabLockEnabled { false };
 
-    // Compensation gain: fixed linear gain applied to input signal to match the level
-    // that Python optimizer expects (-1dB). Calculated once during DI capture and
-    // applied to all incoming audio before processing chain.
+    // Compensation gain: RMS-based linear gain applied to input signal to match target level.
+    // Calculated once during DI capture and applied to all incoming audio before processing chain.
     std::atomic<float> inputCompensationLinear { 1.0f };
+    
+    // Auto-compensation in dB for UI display
+    std::atomic<float> autoCompensationDb { 0.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToneMatchAudioProcessor)
 };

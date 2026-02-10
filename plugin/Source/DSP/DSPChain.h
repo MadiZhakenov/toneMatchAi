@@ -16,6 +16,63 @@
 
 //==============================================================================
 /**
+ * Simple noise gate implementation with hysteresis and smooth gain control.
+ * Used as a pre-NAM gate to cut audio interface noise before signal boosting.
+ */
+class SimpleGate
+{
+public:
+    void prepare(const juce::dsp::ProcessSpec& spec) {
+        sampleRate = spec.sampleRate;
+        alphaAttack = std::exp(-1.0 / (spec.sampleRate * 0.003));  // 3ms attack
+        alphaRelease = std::exp(-1.0 / (spec.sampleRate * 0.100)); // 100ms release
+    }
+
+    void reset() { envelope = 0.0f; gain = 0.0f; }
+
+    void process(juce::dsp::AudioBlock<float>& block) {
+        // Hard-coded threshold for safety (-65dB as specified)
+        const float threshold = juce::Decibels::decibelsToGain(-65.0f);
+        
+        for (int i = 0; i < block.getNumSamples(); ++i) {
+            float input = 0.0f;
+            // Sum channels for detection
+            for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                input += std::abs(block.getSample(ch, i));
+            input /= (float)block.getNumChannels();
+
+            // Envelope follower
+            if (input > envelope) 
+                envelope = alphaAttack * envelope + (1.0 - alphaAttack) * input;
+            else                  
+                envelope = alphaRelease * envelope + (1.0 - alphaRelease) * input;
+
+            // Gate logic with soft knee
+            float targetGain = (envelope > threshold) ? 1.0f : 0.0f;
+            
+            // Smooth the gain change to prevent clicking
+            gain = 0.999f * gain + 0.001f * targetGain;
+
+            // Apply to all channels
+            for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                block.setSample(ch, i, block.getSample(ch, i) * gain);
+        }
+    }
+    
+    template<typename ProcessContext>
+    void process(const ProcessContext& context) {
+        process(context.getOutputBlock());
+    }
+private:
+    double sampleRate = 44100.0;
+    double envelope = 0.0f;
+    double alphaAttack = 0.0f;
+    double alphaRelease = 0.0f;
+    float gain = 0.0f;
+};
+
+//==============================================================================
+/**
  * Owns all DSP stages and processes audio blocks through the full chain.
  *
  * All parameter pointers come from AudioProcessorValueTreeState atomics,
@@ -112,6 +169,7 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DSPChain)
 };
+
 
 
 

@@ -51,9 +51,12 @@ void KnobStrip::resized()
     {
         auto col = area.removeFromLeft(knobWidth);
         k.label->setBounds(col.removeFromBottom(16));
-        k.slider->setBounds(col.reduced(4));
+        auto knobSize = juce::jmin(col.getWidth(), col.getHeight());
+        k.slider->setBounds(col.withSizeKeepingCentre(knobSize, knobSize));
     }
 }
+
+
 
 
 

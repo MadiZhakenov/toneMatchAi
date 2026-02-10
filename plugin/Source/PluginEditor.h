@@ -57,6 +57,9 @@ private:
     juce::Label toneShapeLabel;
     juce::Slider gainSlider;
     juce::Label gainLabel;
+    juce::Slider inputTrimSlider;
+    juce::Label inputTrimLabel;
+    juce::Label autoCompensationLabel;
     juce::Slider overdriveSlider;
     juce::Label overdriveLabel;
     juce::Slider hpfSlider;
@@ -97,6 +100,7 @@ private:
     // APVTS attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneShapeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inputTrimAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> overdriveAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> hpfAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lpfAttachment;

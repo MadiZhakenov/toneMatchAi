@@ -73,6 +73,10 @@ ToneMatchAudioProcessor::createParameterLayout()
         juce::NormalisableRange<float>(-24.0f, 80.0f, 0.1f), 0.0f, "dB"));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("inputTrim", 1), "Input Trim",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, "dB"));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("preEqGainDb", 1), "Pre-EQ Gain",
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f, "dB"));
 
@@ -186,7 +190,28 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     lpf_filter.prepare(spec);
     lpf_filter.coefficients = lpf_coeffs;
 
-    // Aggressive high-pass filter for noise removal
+    // Input Stage: DC Block & Safety HPF (80Hz, Q=0.7) - FIRST in chain
+    inputSafetyHPFCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(
+        sampleRate, 80.0f, 0.707f);  // 80Hz high-pass to remove rumble and low-frequency noise
+    inputSafetyHPF.prepare(spec);
+    inputSafetyHPF.coefficients = inputSafetyHPFCoeffs;
+
+    // Pre-NAM Noise Gate (before any gain)
+    preNAMNoiseGate.prepare(spec);
+    preNAMNoiseGate.setThreshold(-65.0f);
+    preNAMNoiseGate.setAttack(0.003f);
+    preNAMNoiseGate.setRelease(0.100f);
+    preNAMNoiseGate.setRange(-60.0f);
+
+    // Compensation Gain (RMS-based auto-compensation)
+    compensationGain.prepare(spec);
+    compensationGain.setRampDurationSeconds(0.02);
+
+    // Input Trim (manual user adjustment)
+    inputTrimGain.prepare(spec);
+    inputTrimGain.setRampDurationSeconds(0.02);
+
+    // Aggressive high-pass filter for noise removal (DEPRECATED - will be removed)
     aggressive_hpf_coeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(
         sampleRate, 80.0f, 0.707f);  // 80Hz high-pass to remove rumble and low-frequency noise
     aggressive_hpf.prepare(spec);
@@ -202,6 +227,13 @@ void ToneMatchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
 
 void ToneMatchAudioProcessor::releaseResources()
 {
+    // Reset new input stage modules
+    inputSafetyHPF.reset();
+    preNAMNoiseGate.reset();
+    compensationGain.reset();
+    inputTrimGain.reset();
+    
+    // Reset existing modules
     overdrive_gain.reset();
     input_gain.reset();
     pedal.reset();
@@ -212,6 +244,7 @@ void ToneMatchAudioProcessor::releaseResources()
     pre_eq_filter.reset();
     hpf_filter.reset();
     lpf_filter.reset();
+    aggressive_hpf.reset();  // Keep for now (deprecated)
 }
 
 bool ToneMatchAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -252,63 +285,6 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // Clear extra output channels (optimized)
         for (int ch = numInputChannels; ch < numOutputChannels; ++ch)
             buffer.clear(ch, 0, numSamples);
-    }
-
-    // ── Stage 0: Soft Noise Gate (BEFORE compensation gain) ────────────────────
-    const bool noiseGateEnabled = apvts.getRawParameterValue("noiseGateEnabled")->load() > 0.5f;
-    if (noiseGateEnabled)
-    {
-        const float noiseGateThresholdDb = apvts.getRawParameterValue("noiseGateThreshold")->load();
-        const float noiseGateThresholdLinear = juce::Decibels::decibelsToGain(noiseGateThresholdDb);
-        const float noiseGateAttackTime = apvts.getRawParameterValue("noiseGateAttack")->load();
-        const float noiseGateReleaseTime = apvts.getRawParameterValue("noiseGateRelease")->load();
-        const float noiseGateRangeDb = apvts.getRawParameterValue("noiseGateRange")->load();
-        const float noiseGateRangeLinear = juce::Decibels::decibelsToGain(noiseGateRangeDb);
-        
-        // Calculate attack and release coefficients (recalculate every block to allow real-time changes)
-        const float attackCoeff = std::exp(-1.0f / (noiseGateAttackTime * currentSampleRate));
-        const float releaseCoeff = std::exp(-1.0f / (noiseGateReleaseTime * currentSampleRate));
-        
-        // Calculate RMS level for better noise detection (more accurate than peak)
-        float rmsSum = 0.0f;
-        auto* channelData = buffer.getReadPointer(0);
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float sample = channelData[i];
-            rmsSum += sample * sample;
-        }
-        const float rmsLevel = std::sqrt(rmsSum / numSamples);
-        
-        // Update envelope follower based on RMS level (smooth operation)
-        if (rmsLevel > noiseGateThresholdLinear)
-        {
-            // Signal above threshold - attack (open gate smoothly)
-            noiseGateEnvelope = 1.0f - (1.0f - noiseGateEnvelope) * attackCoeff;
-        }
-        else
-        {
-            // Signal below threshold - release (close gate smoothly)
-            noiseGateEnvelope = noiseGateEnvelope * releaseCoeff;
-        }
-        
-        // Apply gate gain to all channels with range control
-        // Range determines minimum level when gate is closed (0 dB = fully closed, -80 dB = only slightly reduced)
-        // Envelope: 0.0 = gate closed, 1.0 = gate fully open
-        if (noiseGateEnvelope < 0.001f)
-        {
-            // Gate fully closed - apply range reduction
-            // Range: 0 dB = mute, -80 dB = minimal reduction
-            buffer.applyGain(noiseGateRangeLinear);
-        }
-        else if (noiseGateEnvelope < 0.999f)
-        {
-            // Gate partially open - interpolate between range (closed) and 1.0 (open)
-            // When envelope = 0: gain = range
-            // When envelope = 1: gain = 1.0
-            float gateGain = noiseGateRangeLinear + (1.0f - noiseGateRangeLinear) * noiseGateEnvelope;
-            buffer.applyGain(gateGain);
-        }
-        // If envelope is ~1.0, no processing needed (gate fully open)
     }
 
     // ── CAPTURE DI (before processing, with real-time normalization) ───────────
@@ -381,14 +357,17 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (numSamples == 0 || numChannels == 0)
         return;
     
-    // ── Stage 0b: Aggressive High-Pass Filter (remove low-frequency noise) ────
-    // This removes rumble and low-frequency noise that can cause issues
     juce::dsp::AudioBlock<float> block(buffer);
+
+    // ── NEW INPUT STAGE: Proper Gain Staging ──────────────────────────────────
+    
+    // Stage 1: DC Block & Safety HPF (80Hz, Q=0.7) - FIRST in chain
+    // This removes network hum/rumble and low-frequency noise BEFORE any gain
     if (numChannels > 0)
     {
         auto monoBlock = block.getSingleChannelBlock(0);
         juce::dsp::ProcessContextReplacing<float> ctx(monoBlock);
-        aggressive_hpf.process(ctx);
+        inputSafetyHPF.process(ctx);
         
         // Copy to other channels
         if (numChannels == 2)
@@ -398,8 +377,43 @@ void ToneMatchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 buffer.copyFrom(ch, 0, buffer, 0, 0, numSamples);
     }
 
-    // ── Compensation gain removed ─────────────────────────────────────────────
-    // DI is now normalized during capture, so no compensation gain needed in real-time
+    // Stage 2: Pre-NAM Noise Gate - BEFORE any gain
+    // This cuts audio interface noise in pauses before signal is boosted
+    if (apvts.getRawParameterValue("noiseGateEnabled")->load() > 0.5f)
+    {
+        const float ngThreshold = apvts.getRawParameterValue("noiseGateThreshold")->load();
+        const float ngAttack    = apvts.getRawParameterValue("noiseGateAttack")->load();
+        const float ngRelease   = apvts.getRawParameterValue("noiseGateRelease")->load();
+        const float ngRange     = apvts.getRawParameterValue("noiseGateRange")->load();
+
+        preNAMNoiseGate.setThreshold(ngThreshold);
+        preNAMNoiseGate.setAttack(ngAttack);
+        preNAMNoiseGate.setRelease(ngRelease);
+        preNAMNoiseGate.setRange(ngRange);
+
+        juce::dsp::ProcessContextReplacing<float> ctx(block);
+        preNAMNoiseGate.process(ctx);
+    }
+
+    // Stage 3: Compensation Gain - RMS-based auto-compensation
+    // This applies the calculated compensation gain to match target RMS level
+    {
+        const float compensationLinear = inputCompensationLinear.load(std::memory_order_acquire);
+        compensationGain.setGainLinear(compensationLinear);
+        juce::dsp::ProcessContextReplacing<float> ctx(block);
+        compensationGain.process(ctx);
+    }
+
+    // Stage 4: Input Trim - manual user adjustment after auto-compensation
+    // This allows user to fine-tune level after auto-compensation, but before NAM
+    {
+        const float inputTrimDb = apvts.getRawParameterValue("inputTrim")->load();
+        inputTrimGain.setGainDecibels(inputTrimDb);
+        juce::dsp::ProcessContextReplacing<float> ctx(block);
+        inputTrimGain.process(ctx);
+    }
+
+    // ── END NEW INPUT STAGE ───────────────────────────────────────────────────
 
     // Read parameters from APVTS (lock-free)
     const float overdriveDb = apvts.getRawParameterValue("overdrive")->load();
@@ -724,26 +738,58 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
 
     }
 
-    // Check if captured audio is not all zeros (very quiet audio)
+    // ── RMS-based Compensation Calculation ────────────────────────────────────
+    // Calculate RMS of captured DI signal (more accurate than peak for gain staging)
+    float rmsLevel = capturedDI.getRMSLevel(0, 0, numCapturedSamples);
+    float rmsDb = juce::Decibels::gainToDecibels(rmsLevel, -100.0f);
+    
+    // Target RMS level: -18.0 dB (industry standard for "hot" signal)
+    const float targetRmsDb = -18.0f;
+    
+    // Calculate raw compensation: TargetRMS - UserRMS
+    float rawCompensationDb = targetRmsDb - rmsDb;
+    
+    // SAFETY CLAMP: Limit compensation to maximum +18.0 dB
+    // Logic: If signal is quieter than -36dB RMS, it's a bad signal.
+    // We won't boost it by +40dB to avoid raising noise. We'll boost by +18dB max,
+    // and the user can adjust the rest on their audio interface.
+    float compensationDb = juce::jlimit(-60.0f, 18.0f, rawCompensationDb);
+    
+    // Convert to linear gain
+    float compensationLinear = juce::Decibels::decibelsToGain(compensationDb);
+    
+    // Store compensation values
+    inputCompensationLinear.store(compensationLinear, std::memory_order_release);
+    autoCompensationDb.store(compensationDb, std::memory_order_release);
+    
+    // Also store peak for compatibility (used in onMatchComplete)
     float peakLinear = capturedDI.getMagnitude(0, 0, numCapturedSamples);
     float peakDb = juce::Decibels::gainToDecibels(peakLinear, -100.0f);
-    dbgLog("triggerMatch:DI_PEAK", "DI peak level (already normalized)", "J", peakLinear, peakDb, 0, numCapturedSamples, 0, true);
-    
-    // DI is already normalized to -1dB during capture, so capturedDIPeakDb should be -1.0f
     capturedDIPeakDb = peakDb;
     
-    // No compensation gain needed - DI is already normalized during capture
-    inputCompensationLinear.store(1.0f, std::memory_order_release);
+    // Logging
+    dbgLog("triggerMatch:DI_RMS", "DI RMS level (RMS-based compensation)", "J", rmsLevel, rmsDb, compensationDb, numCapturedSamples, 0, true);
     
-    if (peakLinear < 1e-6f) // Very quiet or silent
+    if (rawCompensationDb != compensationDb)
     {
-        DBG("[ToneMatch] WARNING: Captured DI is very quiet (peak: " + 
-            juce::String(peakDb, 1) + " dB) - may not match well");
-        dbgLog("triggerMatch:DI_QUIET", "DI is very quiet", "J", peakLinear, peakDb, 0, 0, 0, true);
+        DBG("[ToneMatch] WARNING: Compensation was clamped from " + 
+            juce::String(rawCompensationDb, 1) + " dB to " + 
+            juce::String(compensationDb, 1) + " dB (signal RMS: " + 
+            juce::String(rmsDb, 1) + " dB)");
+        dbgLog("triggerMatch:COMP_CLAMPED", "Compensation clamped", "J", rawCompensationDb, compensationDb, rmsDb, 0, 0, true);
+    }
+    
+    if (rmsLevel < 1e-6f) // Very quiet or silent
+    {
+        DBG("[ToneMatch] WARNING: Captured DI is very quiet (RMS: " + 
+            juce::String(rmsDb, 1) + " dB) - may not match well");
+        dbgLog("triggerMatch:DI_QUIET", "DI is very quiet", "J", rmsLevel, rmsDb, 0, 0, 0, true);
     }
     else
     {
-        DBG("[ToneMatch] DI captured and normalized to " + juce::String(peakDb, 1) + " dB (target: -1.0 dB)");
+        DBG("[ToneMatch] DI captured - RMS: " + juce::String(rmsDb, 1) + 
+            " dB, Target: " + juce::String(targetRmsDb, 1) + 
+            " dB, Compensation: " + juce::String(compensationDb, 1) + " dB");
     }
 
     // Write captured mono DI to file (only the captured portion)
