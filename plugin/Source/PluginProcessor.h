@@ -38,6 +38,16 @@ struct RigParameters
 };
 
 //==============================================================================
+/**
+ * Model entry for the library browser.
+ */
+struct ModelEntry
+{
+    juce::File file;              // Real file path
+    juce::String displayName;     // Formatted name for UI display
+};
+
+//==============================================================================
 class ToneMatchAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -164,6 +174,21 @@ public:
     /** Sync lock states from APVTS parameters. */
     void syncLockStates();
 
+    //==========================================================================
+    // Model Library Management
+
+    /** Scan the assets/nam_models folder and populate availableModels. */
+    void scanModels();
+
+    /** Get the list of available models. */
+    const std::vector<ModelEntry>& getAvailableModels() const { return availableModels; }
+
+    /** Rescan models (useful for refreshing the list). */
+    void rescanModels() { scanModels(); }
+
+    /** Bypass amp model (unload and set to direct input). */
+    void bypassAmpModel();
+
 private:
     //==========================================================================
     /** Build the APVTS parameter layout. */
@@ -273,6 +298,10 @@ private:
     
     // Auto-compensation in dB for UI display
     std::atomic<float> autoCompensationDb { 0.0f };
+
+    //==========================================================================
+    // Model Library
+    std::vector<ModelEntry> availableModels;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ToneMatchAudioProcessor)
 };

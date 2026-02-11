@@ -58,12 +58,23 @@ if(NOT TARGET NAM)
     endif()
 endif()
 
+# Embed Manrope font files into BinaryData
+juce_add_binary_data(ManropeFonts
+    SOURCES
+        ../Manrope-Light.ttf
+        ../Manrope-Regular.ttf
+        ../Manrope-Medium.ttf
+        ../Manrope-SemiBold.ttf
+        ../Manrope-Bold.ttf
+        ../Manrope-ExtraBold.ttf
+)
+
 # Define plugin
 juce_add_plugin(ToneMatchAI
     COMPANY_NAME "ToneMatch"
     PLUGIN_MANUFACTURER_CODE TmAI
     PLUGIN_CODE TmAI
-    FORMATS VST3
+    FORMATS VST3 Standalone
     PRODUCT_NAME "ToneMatch AI"
     DESCRIPTION "AI-Powered Tone Matching VST Plugin"
     VERSION 1.0.0
@@ -107,6 +118,7 @@ target_link_libraries(ToneMatchAI PRIVATE
     juce::juce_core
     juce::juce_events
     NAM
+    ManropeFonts
 )
 
 # Include directories

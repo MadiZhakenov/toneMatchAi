@@ -1300,6 +1300,8 @@ bool ToneMatchAudioProcessor::loadAmpModel(const juce::File& namFile)
     if (amp.loadModel(namFile))
     {
         currentAmpPath = namFile.getFullPathName();
+        // Update lastAmpName so it shows in UI (used by updateRigDisplay)
+        lastAmpName = amp.getModelName();
         return true;
     }
     return false;
@@ -1317,6 +1319,113 @@ bool ToneMatchAudioProcessor::loadIR(const juce::File& irFile)
     currentIRName = irFile.getFileNameWithoutExtension();
     currentIrPath = irFile.getFullPathName();
     return true;
+}
+
+//==============================================================================
+void ToneMatchAudioProcessor::scanModels()
+{
+    availableModels.clear();
+
+    // Find assets/nam_models folder using similar logic to PythonBridge
+    juce::File modelsFolder;
+    
+    // Strategy 1: Check Resources/assets/nam_models relative to plugin
+    auto appFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+    auto appDir = appFile.getParentDirectory();
+    
+    // VST3 structure: ToneMatch AI.vst3/Contents/x86_64-win/ToneMatch AI.vst3
+    // We need to go up to ToneMatch AI.vst3 root, then find Resources/assets/nam_models
+    auto vst3Root = appDir.getParentDirectory().getParentDirectory();  // Up from x86_64-win/Contents
+    auto resourcesFolder = vst3Root.getChildFile("Resources");
+    auto assetsFolder = resourcesFolder.getChildFile("assets");
+    modelsFolder = assetsFolder.getChildFile("nam_models");
+    
+    // Strategy 2: Fallback to dev environment (relative to executable)
+    if (!modelsFolder.exists() || !modelsFolder.isDirectory())
+    {
+        // Try dev environment: assume assets/nam_models is relative to executable
+        auto devAssets = appDir.getChildFile("assets");
+        modelsFolder = devAssets.getChildFile("nam_models");
+    }
+    
+    // Strategy 3: Try common VST3 shared locations
+    if (!modelsFolder.exists() || !modelsFolder.isDirectory())
+    {
+        juce::Array<juce::File> commonPaths;
+        commonPaths.add(juce::File("C:\\Program Files\\Common Files\\VST3\\assets\\nam_models"));
+        commonPaths.add(juce::File("C:\\Program Files (x86)\\Common Files\\VST3\\assets\\nam_models"));
+        
+        for (const auto& path : commonPaths)
+        {
+            if (path.exists() && path.isDirectory())
+            {
+                modelsFolder = path;
+                break;
+            }
+        }
+    }
+
+    if (!modelsFolder.exists() || !modelsFolder.isDirectory())
+    {
+        DBG("[ModelLibrary] Models folder not found. Tried: " + modelsFolder.getFullPathName());
+        return;
+    }
+
+    DBG("[ModelLibrary] Scanning models in: " + modelsFolder.getFullPathName());
+
+    // Get all .nam files
+    juce::Array<juce::File> namFiles;
+    modelsFolder.findChildFiles(namFiles, juce::File::findFiles, false, "*.nam");
+
+    // Parse and create ModelEntry for each file
+    for (const auto& file : namFiles)
+    {
+        ModelEntry entry;
+        entry.file = file;
+        
+        // Parse display name: remove author prefixes, extension, replace underscores
+        juce::String fileName = file.getFileNameWithoutExtension();
+        
+        // Remove known author prefixes
+        juce::Array<juce::String> authorPrefixes;
+        authorPrefixes.add("Helga B ");
+        authorPrefixes.add("Tim R ");
+        authorPrefixes.add("George B ");
+        authorPrefixes.add("Keith B ");
+        
+        for (const auto& prefix : authorPrefixes)
+        {
+            if (fileName.startsWith(prefix))
+            {
+                fileName = fileName.substring(prefix.length());
+                break;
+            }
+        }
+        
+        // Replace underscores with spaces
+        fileName = fileName.replaceCharacter('_', ' ');
+        
+        entry.displayName = fileName;
+        availableModels.push_back(entry);
+    }
+
+    // Sort alphabetically by displayName
+    std::sort(availableModels.begin(), availableModels.end(),
+        [](const ModelEntry& a, const ModelEntry& b) {
+            return a.displayName.compareIgnoreCase(b.displayName) < 0;
+        });
+
+    DBG("[ModelLibrary] Found " + juce::String(availableModels.size()) + " models");
+}
+
+//==============================================================================
+void ToneMatchAudioProcessor::bypassAmpModel()
+{
+    amp.clearModel();
+    currentAmpPath.clear();
+    // Don't set lastAmpName here - it's used for AI-matched amps
+    // The UI will detect bypass by checking currentAmpPath.isEmpty() && getAmpModelName().isEmpty()
+    DBG("[ModelLibrary] Amp model bypassed - Direct Input mode");
 }
 
 //==============================================================================

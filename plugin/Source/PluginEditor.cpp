@@ -1,7 +1,8 @@
 /*
   ==============================================================================
     PluginEditor.cpp
-    ToneMatch AI — modern minimalist UI implementation.
+    ToneMatch AI — Ultra-Premium Dark Modern UI with Tabs (2026)
+    References: Neural DSP Archetype, Ableton Live 12, Minimalist Sci-Fi
   ==============================================================================
 */
 
@@ -10,217 +11,962 @@
 
 //==============================================================================
 ToneMatchAudioProcessorEditor::ToneMatchAudioProcessorEditor(
-        ToneMatchAudioProcessor& p)
-    : AudioProcessorEditor(&p),
-      processorRef(p),
-      progressBar(progressValue)
+    ToneMatchAudioProcessor& p)
+: AudioProcessorEditor(&p),
+  processorRef(p),
+  progressBar(progressValue),
+  tabbedComponent(juce::TabbedButtonBar::TabsAtTop)
 {
-    setSize(700, 900);  // Increased height for Noise Gate controls
+setLookAndFeel(&modernLookAndFeel);
 
-    // Subscribe to progress state changes
-    processorRef.getProgressState().addListener(this);
+// INCREASED HEIGHT to 640px to ensure all knob values are visible
+setSize(640, 640);
 
-    setupSectionA();
-    setupSectionB();
-    setupSectionC();
+processorRef.getProgressState().addListener(this);
 
-    // Initial display update
-    updateRigDisplay();
-    updateProgressDisplay();
+setupGlobalControls();
 
-    // Start timer for periodic updates
-    startTimerHz(30);
+tonePanel = std::make_unique<ToneControlPanel>(processorRef, *this);
+effectsPanel = std::make_unique<EffectsPanel>(processorRef, *this);
+libraryPanel = std::make_unique<LibraryPanel>(processorRef, *this);
+
+tabbedComponent.addTab("TONE", getSecondaryColour(), tonePanel.get(), false);
+tabbedComponent.addTab("FX", getSecondaryColour(), effectsPanel.get(), false);
+tabbedComponent.addTab("LIBRARY", getSecondaryColour(), libraryPanel.get(), false);
+
+tabbedComponent.setColour(juce::TabbedComponent::outlineColourId, juce::Colour(0xFF1A1A1A));
+tabbedComponent.setCurrentTabIndex(0);
+
+addAndMakeVisible(tabbedComponent);
+addAndMakeVisible(titleLabel);
+addAndMakeVisible(recordButton);
+addAndMakeVisible(matchToneButton);
+addAndMakeVisible(progressBar);
+addAndMakeVisible(statusLabel);
+
+updateRigDisplay();
+updateProgressDisplay();
+
+startTimerHz(30);
 }
 
 ToneMatchAudioProcessorEditor::~ToneMatchAudioProcessorEditor()
 {
     stopTimer();
     processorRef.getProgressState().removeListener(this);
+    setLookAndFeel(nullptr);
 }
 
 //==============================================================================
 void ToneMatchAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    // Charcoal background
-    g.fillAll(getBackgroundColour());
+    auto bounds = getLocalBounds();
 
-    // No borders, no dividers - clean minimal design
+    // Ultra-premium radial gradient background with vignette
+    juce::ColourGradient gradient(
+        juce::Colour(0xFF1E1E1E), bounds.getCentreX(), bounds.getCentreY(),
+        juce::Colour(0xFF0A0A0A), bounds.getX(), bounds.getY(), true);
+    gradient.addColour(0.7, juce::Colour(0xFF151515));
+    g.setGradientFill(gradient);
+    g.fillAll();
+
+    // Subtle noise texture (simulated with random dots)
+    juce::Random random(12345);
+    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.015f));
+    for (int i = 0; i < 800; ++i)
+    {
+        auto x = random.nextFloat() * bounds.getWidth();
+        auto y = random.nextFloat() * bounds.getHeight();
+        g.fillRect(x, y, 1.0f, 1.0f);
+    }
 }
 
 void ToneMatchAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds();
+    auto area = getLocalBounds().reduced(15, 10);
+    
+    // Title
+    titleLabel.setFont(FontManager::getInstance().getExtraBold(20.0f));
+    titleLabel.setText("ToneMatch AI", juce::dontSendNotification);
+    titleLabel.setColour(juce::Label::textColourId, getAccentColour().brighter(0.3f));
+    titleLabel.setBounds(area.removeFromTop(35).removeFromLeft(180));
+    
+    area.removeFromTop(5);
+    
+    // Global controls row
+    auto globalRow = area.removeFromTop(50);
+    
+    recordButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
+    globalRow.removeFromLeft(10);
+    
+    matchToneButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
+    
+    progressBar.setBounds(globalRow.removeFromRight(160).reduced(2, 10));
+    
+    area.removeFromTop(8);
+    
+    // Tabbed component takes remaining space
+    tabbedComponent.setBounds(area);
+}
 
-    // ── Section A: Main Control (top, ~120px) ────────────────────────────────
-    {
-        auto sectionA = area.removeFromTop(120).reduced(20, 10);
-        
-        const int buttonWidth = 220;
-        const int buttonHeight = 45;
-        
-        // Status label at top (centered, only visible when matching)
-        auto statusArea = sectionA.removeFromTop(25);
-        statusLabel.setBounds(statusArea.withSizeKeepingCentre(buttonWidth, 25));
-        
-        sectionA.removeFromTop(5);
-        
-        // Buttons (stacked)
-        auto buttonsArea = sectionA.removeFromTop(95);
-        recordButton.setBounds(buttonsArea.removeFromTop(buttonHeight).withSizeKeepingCentre(buttonWidth, buttonHeight));
-        buttonsArea.removeFromTop(5);
-        matchToneButton.setBounds(buttonsArea.removeFromTop(buttonHeight).withSizeKeepingCentre(buttonWidth, buttonHeight));
-        
-        // Progress bar (below button, same width, centered)
-        auto progressArea = sectionA.removeFromBottom(8);
-        progressBar.setBounds(progressArea.withSizeKeepingCentre(buttonWidth, 8));
-    }
+void ToneMatchAudioProcessorEditor::drawSectionFrame(juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& title)
+{
+    // Ultra-subtle frame
+    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.05f));
+    g.drawRoundedRectangle(bounds.toFloat().reduced(2), 8.0f, 1.0f);
 
-    // ── Section B: Diagnostics (center, expanded for Expert Tweaks) ──────────
+    // Laser-etched title (if provided)
+    if (title.isNotEmpty())
     {
-        auto sectionB = area.removeFromTop(370).reduced(20, 10);  // Increased height for Overdrive slider
+        g.setFont(FontManager::getInstance().getBold(11.0f));
+        g.setColour(juce::Colour(0xFF00A8FF).withAlpha(0.6f));
+        g.drawText(title, bounds.getX() + 15, bounds.getY() - 6, 150, 12,
+                  juce::Justification::centredLeft);
         
-        // Rig name label (top)
-        rigNameLabel.setBounds(sectionB.removeFromTop(25));
+        // Title background
+        g.setColour(juce::Colour(0xFF0A0A0A));
+        g.fillRect(bounds.getX() + 12, bounds.getY() - 7, title.length() * 7 + 8, 16);
         
-        // Lock buttons (side by side under rig name)
-        auto lockRow = sectionB.removeFromTop(25);
-        aiLockButton.setBounds(lockRow.removeFromLeft(100).reduced(2));
-        lockRow.removeFromLeft(10);
-        cabLockButton.setBounds(lockRow.removeFromLeft(100).reduced(2));
-        sectionB.removeFromTop(8);
-        
-        // Cabinet label
-        cabinetLabel.setBounds(sectionB.removeFromTop(25));
-        sectionB.removeFromTop(10);
-        
-        // EXPERT TWEAKS section
-        expertTweaksLabel.setBounds(sectionB.removeFromTop(20));
-        sectionB.removeFromTop(5);
-        
-        // TONE SHAPE
-        toneShapeLabel.setBounds(sectionB.removeFromTop(16));
-        sectionB.removeFromTop(2);
-        toneShapeSlider.setBounds(sectionB.removeFromTop(30));
-        sectionB.removeFromTop(5);
-        
-        // GAIN
-        gainLabel.setBounds(sectionB.removeFromTop(16));
-        sectionB.removeFromTop(2);
-        gainSlider.setBounds(sectionB.removeFromTop(30));
-        sectionB.removeFromTop(5);
-        
-        // INPUT TRIM
-        inputTrimLabel.setBounds(sectionB.removeFromTop(16));
-        sectionB.removeFromTop(2);
-        inputTrimSlider.setBounds(sectionB.removeFromTop(30));
-        sectionB.removeFromTop(5);
-        
-        // AUTO-COMPENSATION indicator (small label)
-        autoCompensationLabel.setBounds(sectionB.removeFromTop(16));
-        sectionB.removeFromTop(5);
-        
-        // OVERDRIVE
-        overdriveLabel.setBounds(sectionB.removeFromTop(16));
-        sectionB.removeFromTop(2);
-        overdriveSlider.setBounds(sectionB.removeFromTop(30));
-        sectionB.removeFromTop(5);
-        
-        // HPF and LPF (side by side)
-        auto filterRow = sectionB.removeFromTop(30);
-        auto hpfArea = filterRow.removeFromLeft(filterRow.getWidth() / 2 - 5);
-        hpfLabel.setBounds(hpfArea.removeFromTop(16));
-        hpfArea.removeFromTop(2);
-        hpfSlider.setBounds(hpfArea);
-        
-        filterRow.removeFromLeft(10);
-        
-        auto lpfArea = filterRow;
-        lpfLabel.setBounds(lpfArea.removeFromTop(16));
-        lpfArea.removeFromTop(2);
-        lpfSlider.setBounds(lpfArea);
-    }
-
-    // ── Section C: Details & Presets (bottom, remaining) ─────────────────────
-    {
-        auto sectionC = area.reduced(20, 10);
-        
-        // Reserve space for preset buttons at bottom
-        auto buttonRow = sectionC.removeFromBottom(35);
-        saveButton.setBounds(buttonRow.removeFromRight(70).reduced(3));
-        buttonRow.removeFromRight(10);
-        loadButton.setBounds(buttonRow.removeFromRight(70).reduced(3));
-        buttonRow.removeFromRight(10);
-        namFileButton.setBounds(buttonRow.removeFromRight(70).reduced(3));
-        
-        sectionC.removeFromBottom(8);
-        
-        // Delay and Reverb sliders (horizontal layout)
-        const int sliderHeight = 70;
-        const int totalWidth = sectionC.getWidth();
-        const int spacing = 8;
-        const int sliderWidth = (totalWidth - (spacing * 3)) / 4;  // 4 sliders with 3 spacings
-        
-        // Delay Time
-        auto delayTimeArea = sectionC.removeFromLeft(sliderWidth);
-        delayTimeLabel.setBounds(delayTimeArea.removeFromTop(18));
-        delayTimeSlider.setBounds(delayTimeArea.withHeight(sliderHeight));
-        sectionC.removeFromLeft(spacing);
-        
-        // Delay Mix
-        auto delayMixArea = sectionC.removeFromLeft(sliderWidth);
-        delayMixLabel.setBounds(delayMixArea.removeFromTop(18));
-        delayMixSlider.setBounds(delayMixArea.withHeight(sliderHeight));
-        sectionC.removeFromLeft(spacing);
-        
-        // Reverb Size
-        auto reverbSizeArea = sectionC.removeFromLeft(sliderWidth);
-        reverbSizeLabel.setBounds(reverbSizeArea.removeFromTop(18));
-        reverbSizeSlider.setBounds(reverbSizeArea.withHeight(sliderHeight));
-        sectionC.removeFromLeft(spacing);
-        
-        // Reverb Wet
-        auto reverbWetArea = sectionC.removeFromLeft(sliderWidth);
-        reverbWetLabel.setBounds(reverbWetArea.removeFromTop(18));
-        reverbWetSlider.setBounds(reverbWetArea.withHeight(sliderHeight));
-        
-        sectionC.removeFromTop(15);
-        
-        // Noise Gate section
-        noiseGateLabel.setBounds(sectionC.removeFromTop(20));
-        sectionC.removeFromTop(5);
-        
-        // Noise Gate Enabled button
-        noiseGateEnabledButton.setBounds(sectionC.removeFromTop(25).removeFromLeft(100));
-        sectionC.removeFromTop(8);
-        
-        // Noise Gate sliders (2 rows of 2 sliders each)
-        const int ngSliderHeight = 60;
-        const int ngSliderWidth = (totalWidth - spacing) / 2;
-        
-        // First row: Threshold and Attack
-        auto ngRow1 = sectionC.removeFromTop(ngSliderHeight + 20);
-        auto ngThresholdArea = ngRow1.removeFromLeft(ngSliderWidth);
-        noiseGateThresholdLabel.setBounds(ngThresholdArea.removeFromTop(18));
-        noiseGateThresholdSlider.setBounds(ngThresholdArea.withHeight(ngSliderHeight));
-        ngRow1.removeFromLeft(spacing);
-        auto ngAttackArea = ngRow1;
-        noiseGateAttackLabel.setBounds(ngAttackArea.removeFromTop(18));
-        noiseGateAttackSlider.setBounds(ngAttackArea.withHeight(ngSliderHeight));
-        
-        sectionC.removeFromTop(8);
-        
-        // Second row: Release and Range
-        auto ngRow2 = sectionC.removeFromTop(ngSliderHeight + 20);
-        auto ngReleaseArea = ngRow2.removeFromLeft(ngSliderWidth);
-        noiseGateReleaseLabel.setBounds(ngReleaseArea.removeFromTop(18));
-        noiseGateReleaseSlider.setBounds(ngReleaseArea.withHeight(ngSliderHeight));
-        ngRow2.removeFromLeft(spacing);
-        auto ngRangeArea = ngRow2;
-        noiseGateRangeLabel.setBounds(ngRangeArea.removeFromTop(18));
-        noiseGateRangeSlider.setBounds(ngRangeArea.withHeight(ngSliderHeight));
+        // Re-draw title on top
+        g.setColour(juce::Colour(0xFF00A8FF).withAlpha(0.7f));
+        g.drawText(title, bounds.getX() + 15, bounds.getY() - 6, 150, 12,
+                  juce::Justification::centredLeft);
     }
 }
 
+//==============================================================================
+void ToneMatchAudioProcessorEditor::setupGlobalControls()
+{
+    // Title
+    titleLabel.setFont(FontManager::getInstance().getExtraBold(20.0f));
+    titleLabel.setText("ToneMatch AI", juce::dontSendNotification);
+    titleLabel.setColour(juce::Label::textColourId, getAccentColour().brighter(0.3f));
+    titleLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(titleLabel);
+    
+    // Record DI button
+    recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    recordButton.setColour(juce::TextButton::textColourOffId, getTextColour());
+    recordButton.setButtonText("RECORD DI (30s)");
+    recordButton.onClick = [this]()
+    {
+        if (processorRef.isCapturingDI())
+        {
+            processorRef.stopCapturingDI();
+        }
+        else
+        {
+            processorRef.startCapturingDI();
+            recordButton.setButtonText("STOP RECORDING");
+            recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
+            
+            if (processorRef.getProgressStage() == 0)
+            {
+                statusLabel.setVisible(false);
+            }
+        }
+    };
+    addAndMakeVisible(recordButton);
+
+    // Match Tone button
+    matchToneButton.setColour(juce::TextButton::buttonColourId, getAccentColour());
+    matchToneButton.setColour(juce::TextButton::textColourOffId, getTextColour());
+    matchToneButton.setColour(juce::TextButton::buttonOnColourId, getAccentColour().darker(0.2f));
+    matchToneButton.setColour(juce::TextButton::textColourOnId, getTextColour());
+    matchToneButton.setButtonText("MATCH TONE");
+    
+    matchToneButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Select Reference Audio", juce::File(), "*.wav;*.mp3");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
+        {
+            if (fc.getResult().existsAsFile())
+            {
+                matchToneButton.setVisible(false);
+                progressBar.setVisible(true);
+                statusLabel.setVisible(true);
+                statusLabel.setText("Starting...", juce::dontSendNotification);
+                progressValue = 0.1;
+                repaint();
+                
+                processorRef.triggerMatch(fc.getResult());
+            }
+        });
+    };
+    addAndMakeVisible(matchToneButton);
+
+    // Progress bar
+    progressBar.setColour(juce::ProgressBar::foregroundColourId, getAccentColour());
+    progressBar.setColour(juce::ProgressBar::backgroundColourId, getSecondaryColour());
+    progressBar.setPercentageDisplay(false);
+    progressBar.setVisible(false);
+    addAndMakeVisible(progressBar);
+
+    // Status label (Manrope SemiBold)
+    statusLabel.setFont(FontManager::getInstance().getSemiBold(14.0f));
+    statusLabel.setColour(juce::Label::textColourId, getTextColour());
+    statusLabel.setJustificationType(juce::Justification::centred);
+    statusLabel.setVisible(false);
+    statusLabel.setAlwaysOnTop(true);
+    addAndMakeVisible(statusLabel);
+}
+
+//==============================================================================
+// TONE CONTROL PANEL IMPLEMENTATION
+//==============================================================================
+ToneControlPanel::ToneControlPanel(
+        ToneMatchAudioProcessor& processor, ToneMatchAudioProcessorEditor& editor)
+    : processorRef(processor), editorRef(editor)
+{
+    setupControls();
+}
+
+void ToneControlPanel::setupControls()
+{
+    auto& apvts = processorRef.getAPVTS();
+
+    // Rig name label (Manrope Bold) - LARGER FONT
+    rigNameLabel.setFont(FontManager::getInstance().getBold(18.0f));
+    rigNameLabel.setColour(juce::Label::textColourId, editorRef.getTextColour());
+    rigNameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    rigNameLabel.setJustificationType(juce::Justification::centredLeft);
+    rigNameLabel.setText("Rig Name: None", juce::dontSendNotification);
+    addAndMakeVisible(rigNameLabel);
+
+    // Cabinet label (Manrope Bold) - LARGER FONT
+    cabinetLabel.setFont(FontManager::getInstance().getBold(18.0f));
+    cabinetLabel.setColour(juce::Label::textColourId, editorRef.getTextColour());
+    cabinetLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    cabinetLabel.setJustificationType(juce::Justification::centredLeft);
+    cabinetLabel.setText("Cabinet: None", juce::dontSendNotification);
+    addAndMakeVisible(cabinetLabel);
+
+    // EXPERT TWEAKS section label (Manrope ExtraBold) - LARGER FONT
+    expertTweaksLabel.setText("EXPERT TWEAKS", juce::dontSendNotification);
+    expertTweaksLabel.setFont(FontManager::getInstance().getExtraBold(14.0f));
+    expertTweaksLabel.setColour(juce::Label::textColourId, editorRef.getAccentColour());
+    expertTweaksLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(expertTweaksLabel);
+
+    // TONE SHAPE slider (Rotary Knob)
+    toneShapeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    toneShapeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    toneShapeSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    toneShapeSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    toneShapeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    toneShapeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "preEqGainDb", toneShapeSlider);
+    addAndMakeVisible(toneShapeSlider);
+
+    toneShapeLabel.setText("TONE SHAPE", juce::dontSendNotification);
+    toneShapeLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    toneShapeLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    toneShapeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    toneShapeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(toneShapeLabel);
+
+    // GAIN slider (Rotary Knob)
+    gainSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    gainSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    gainSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    gainSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    gainSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    gainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "inputGain", gainSlider);
+    addAndMakeVisible(gainSlider);
+
+    gainLabel.setText("GAIN", juce::dontSendNotification);
+    gainLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    gainLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    gainLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    gainLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(gainLabel);
+
+    // INPUT TRIM slider (Rotary Knob)
+    inputTrimSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    inputTrimSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    inputTrimSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    inputTrimSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    inputTrimSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    inputTrimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "inputTrim", inputTrimSlider);
+    addAndMakeVisible(inputTrimSlider);
+
+    inputTrimLabel.setText("INPUT TRIM", juce::dontSendNotification);
+    inputTrimLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    inputTrimLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    inputTrimLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    inputTrimLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(inputTrimLabel);
+
+    // AUTO-COMPENSATION indicator
+    autoCompensationLabel.setText("Auto-Boost: 0.0 dB", juce::dontSendNotification);
+    autoCompensationLabel.setFont(FontManager::getInstance().getRegular(12.0f));
+    autoCompensationLabel.setColour(juce::Label::textColourId, editorRef.getAccentColour().withAlpha(0.8f));
+    autoCompensationLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    autoCompensationLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(autoCompensationLabel);
+
+    // OVERDRIVE slider (Rotary Knob)
+    overdriveSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    overdriveSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    overdriveSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    overdriveSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    overdriveSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    overdriveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "overdrive", overdriveSlider);
+    addAndMakeVisible(overdriveSlider);
+
+    overdriveLabel.setText("OVERDRIVE", juce::dontSendNotification);
+    overdriveLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    overdriveLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    overdriveLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    overdriveLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(overdriveLabel);
+
+    // HPF slider (Rotary Knob)
+    hpfSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    hpfSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    hpfSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    hpfSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    hpfSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    hpfAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "hpfFreq", hpfSlider);
+    addAndMakeVisible(hpfSlider);
+
+    hpfLabel.setText("HPF", juce::dontSendNotification);
+    hpfLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    hpfLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    hpfLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    hpfLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(hpfLabel);
+
+    // LPF slider (Rotary Knob)
+    lpfSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    lpfSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    lpfSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    lpfSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    lpfSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    lpfAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "lpfFreq", lpfSlider);
+    addAndMakeVisible(lpfSlider);
+
+    lpfLabel.setText("LPF", juce::dontSendNotification);
+    lpfLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    lpfLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    lpfLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    lpfLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(lpfLabel);
+}
+
+void ToneControlPanel::resized()
+{
+    auto area = getLocalBounds().reduced(20, 15);
+    
+    // Rig name
+    rigNameLabel.setBounds(area.removeFromTop(32));
+    area.removeFromTop(8);
+    
+    // Cabinet
+    cabinetLabel.setBounds(area.removeFromTop(32));
+    area.removeFromTop(15);
+    
+    // Expert Tweaks header
+    expertTweaksLabel.setBounds(area.removeFromTop(28));
+    area.removeFromTop(10);
+    
+    // FIXED: Make knobs smaller to fit all 6 in the available height
+    const int knobSize = 90; // Reduced from 110px to 90px
+    const int knobSpacing = 15; // Reduced from 20px to 15px
+    const int labelHeight = 20;
+    
+    int totalKnobsWidth = (knobSize * 3) + (knobSpacing * 2);
+    int startX = getWidth()/2 - totalKnobsWidth/2;
+    
+    // Row 1: TONE SHAPE, GAIN, INPUT TRIM
+    int currentY = area.getY();
+    
+    toneShapeSlider.setBounds(startX, currentY + labelHeight + 5, knobSize, knobSize);
+    toneShapeLabel.setBounds(startX, currentY, knobSize, labelHeight);
+    
+    gainSlider.setBounds(startX + knobSize + knobSpacing, currentY + labelHeight + 5, knobSize, knobSize);
+    gainLabel.setBounds(startX + knobSize + knobSpacing, currentY, knobSize, labelHeight);
+    
+    inputTrimSlider.setBounds(startX + (knobSize + knobSpacing) * 2, currentY + labelHeight + 5, knobSize, knobSize);
+    inputTrimLabel.setBounds(startX + (knobSize + knobSpacing) * 2, currentY, knobSize, labelHeight);
+    
+    area.removeFromTop(knobSize + labelHeight + 10); // Reduced spacing
+    
+    // Auto-Compensation
+    autoCompensationLabel.setBounds(startX, area.getY(), totalKnobsWidth, 22);
+    area.removeFromTop(25); // Reduced spacing
+    
+    // Row 2: OVERDRIVE, HPF, LPF
+    currentY = area.getY();
+    
+    overdriveSlider.setBounds(startX, currentY + labelHeight + 5, knobSize, knobSize);
+    overdriveLabel.setBounds(startX, currentY, knobSize, labelHeight);
+    
+    hpfSlider.setBounds(startX + knobSize + knobSpacing, currentY + labelHeight + 5, knobSize, knobSize);
+    hpfLabel.setBounds(startX + knobSize + knobSpacing, currentY, knobSize, labelHeight);
+    
+    lpfSlider.setBounds(startX + (knobSize + knobSpacing) * 2, currentY + labelHeight + 5, knobSize, knobSize);
+    lpfLabel.setBounds(startX + (knobSize + knobSpacing) * 2, currentY, knobSize, labelHeight);
+    
+    // No need to remove more - we're done!
+}
+
+
+void ToneControlPanel::paint(juce::Graphics& g)
+{
+    // Subtle frame
+    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.03f));
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2), 8.0f, 1.0f);
+}
+
+void ToneControlPanel::updateRigDisplay()
+{
+    juce::String ampName = processorRef.getLastAmpName();
+    juce::String cabName = processorRef.getLastCabName();
+    juce::String pedalName = processorRef.getPedalModelName();
+    
+    // Check if amp is bypassed (currentAmpPath is empty and no model loaded)
+    bool isBypassed = processorRef.getCurrentAmpPath().isEmpty() && processorRef.getAmpModelName().isEmpty();
+
+    juce::String rigText = "Rig Name: ";
+    if (isBypassed)
+    {
+        rigText += "Direct Input (No Amp)";
+    }
+    else if (pedalName.isNotEmpty() && ampName.isNotEmpty())
+    {
+        rigText += pedalName + " → " + ampName;
+    }
+    else if (ampName.isNotEmpty())
+    {
+        rigText += ampName;
+    }
+    else
+    {
+        rigText += "None";
+    }
+    rigNameLabel.setText(rigText, juce::dontSendNotification);
+
+    juce::String cabText = "Cabinet: ";
+    if (cabName.isNotEmpty())
+    {
+        cabText += cabName;
+    }
+    else
+    {
+        cabText += "None";
+    }
+    cabinetLabel.setText(cabText, juce::dontSendNotification);
+}
+
+void ToneControlPanel::updateAutoCompensation(float autoCompDb)
+{
+    if (std::abs(autoCompDb) < 0.1f)
+    {
+        autoCompensationLabel.setText("Auto-Boost: 0.0 dB", juce::dontSendNotification);
+    }
+    else
+    {
+        autoCompensationLabel.setText(juce::String("Auto-Boost: ") + 
+            (autoCompDb >= 0.0f ? "+" : "") + 
+            juce::String(autoCompDb, 1) + " dB", juce::dontSendNotification);
+    }
+}
+
+//==============================================================================
+// EFFECTS & NOISE GATE PANEL IMPLEMENTATION
+//==============================================================================
+EffectsPanel::EffectsPanel(
+        ToneMatchAudioProcessor& processor, ToneMatchAudioProcessorEditor& editor)
+    : processorRef(processor), editorRef(editor)
+{
+    setupControls();
+}
+
+void EffectsPanel::setupControls()
+{
+    auto& apvts = processorRef.getAPVTS();
+
+    // Effects header
+    effectsLabel.setText("EFFECTS", juce::dontSendNotification);
+    effectsLabel.setFont(FontManager::getInstance().getExtraBold(14.0f));
+    effectsLabel.setColour(juce::Label::textColourId, editorRef.getAccentColour());
+    effectsLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(effectsLabel);
+
+    // Delay Time slider (Rotary Knob)
+    delayTimeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    delayTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    delayTimeSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    delayTimeSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    delayTimeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    delayTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "delayTimeMs", delayTimeSlider);
+    addAndMakeVisible(delayTimeSlider);
+
+    delayTimeLabel.setText("DELAY TIME", juce::dontSendNotification);
+    delayTimeLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    delayTimeLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    delayTimeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    delayTimeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(delayTimeLabel);
+
+    // Delay Mix slider (Rotary Knob)
+    delayMixSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    delayMixSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    delayMixSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    delayMixSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    delayMixSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    delayMixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "delayMix", delayMixSlider);
+    addAndMakeVisible(delayMixSlider);
+
+    delayMixLabel.setText("DELAY MIX", juce::dontSendNotification);
+    delayMixLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    delayMixLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    delayMixLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    delayMixLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(delayMixLabel);
+
+    // Reverb Size slider (Rotary Knob)
+    reverbSizeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    reverbSizeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    reverbSizeSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    reverbSizeSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    reverbSizeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    reverbSizeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "reverbRoomSize", reverbSizeSlider);
+    addAndMakeVisible(reverbSizeSlider);
+
+    reverbSizeLabel.setText("REVERB SIZE", juce::dontSendNotification);
+    reverbSizeLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    reverbSizeLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    reverbSizeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    reverbSizeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(reverbSizeLabel);
+
+    // Reverb Wet slider (Rotary Knob)
+    reverbWetSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    reverbWetSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    reverbWetSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    reverbWetSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    reverbWetSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    reverbWetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "reverbWet", reverbWetSlider);
+    addAndMakeVisible(reverbWetSlider);
+
+    reverbWetLabel.setText("REVERB WET", juce::dontSendNotification);
+    reverbWetLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    reverbWetLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    reverbWetLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    reverbWetLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(reverbWetLabel);
+
+    // NOISE GATE section
+    noiseGateLabel.setText("NOISE GATE", juce::dontSendNotification);
+    noiseGateLabel.setFont(FontManager::getInstance().getExtraBold(14.0f));
+    noiseGateLabel.setColour(juce::Label::textColourId, editorRef.getAccentColour());
+    noiseGateLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(noiseGateLabel);
+
+    // Noise Gate Enabled button
+    noiseGateEnabledButton.setButtonText("ENABLED");
+    noiseGateEnabledButton.setColour(juce::ToggleButton::textColourId, editorRef.getTextColour());
+    noiseGateEnabledButton.setColour(juce::ToggleButton::tickColourId, editorRef.getAccentColour());
+    noiseGateEnabledButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xFF666666));
+    noiseGateEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        apvts, "noiseGateEnabled", noiseGateEnabledButton);
+    addAndMakeVisible(noiseGateEnabledButton);
+
+    // Noise Gate Threshold slider (Rotary Knob)
+    noiseGateThresholdSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    noiseGateThresholdSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    noiseGateThresholdSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    noiseGateThresholdSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    noiseGateThresholdSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateThreshold", noiseGateThresholdSlider);
+    addAndMakeVisible(noiseGateThresholdSlider);
+
+    noiseGateThresholdLabel.setText("THRESHOLD", juce::dontSendNotification);
+    noiseGateThresholdLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    noiseGateThresholdLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    noiseGateThresholdLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateThresholdLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(noiseGateThresholdLabel);
+
+    // Noise Gate Attack slider (Rotary Knob)
+    noiseGateAttackSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    noiseGateAttackSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    noiseGateAttackSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    noiseGateAttackSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    noiseGateAttackSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateAttackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateAttack", noiseGateAttackSlider);
+    addAndMakeVisible(noiseGateAttackSlider);
+
+    noiseGateAttackLabel.setText("ATTACK", juce::dontSendNotification);
+    noiseGateAttackLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    noiseGateAttackLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    noiseGateAttackLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateAttackLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(noiseGateAttackLabel);
+
+    // Noise Gate Release slider (Rotary Knob)
+    noiseGateReleaseSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    noiseGateReleaseSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    noiseGateReleaseSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    noiseGateReleaseSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    noiseGateReleaseSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateReleaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateRelease", noiseGateReleaseSlider);
+    addAndMakeVisible(noiseGateReleaseSlider);
+
+    noiseGateReleaseLabel.setText("RELEASE", juce::dontSendNotification);
+    noiseGateReleaseLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    noiseGateReleaseLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    noiseGateReleaseLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateReleaseLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(noiseGateReleaseLabel);
+
+    // Noise Gate Range slider (Rotary Knob)
+    noiseGateRangeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    noiseGateRangeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 22);
+    noiseGateRangeSlider.setColour(juce::Slider::textBoxTextColourId, editorRef.getTextColour());
+    noiseGateRangeSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    noiseGateRangeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    noiseGateRangeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "noiseGateRange", noiseGateRangeSlider);
+    addAndMakeVisible(noiseGateRangeSlider);
+
+    noiseGateRangeLabel.setText("RANGE", juce::dontSendNotification);
+    noiseGateRangeLabel.setFont(FontManager::getInstance().getSemiBold(12.0f));
+    noiseGateRangeLabel.setColour(juce::Label::textColourId, editorRef.getTextColour().withAlpha(0.8f));
+    noiseGateRangeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    noiseGateRangeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(noiseGateRangeLabel);
+
+    // Save button
+    saveButton.setButtonText("SAVE");
+    saveButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    saveButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    saveButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
+    saveButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
+    saveButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Save Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
+
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [this, chooser](const auto& fc)
+        {
+            if (fc.getResult().getFullPathName().isNotEmpty())
+                processorRef.getPresetManager().savePreset(
+                    fc.getResult(), processorRef.getAPVTS(), processorRef);
+        });
+    };
+    addAndMakeVisible(saveButton);
+
+    // Load button
+    loadButton.setButtonText("LOAD");
+    loadButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    loadButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    loadButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
+    loadButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
+    loadButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Load Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
+        {
+            if (fc.getResult().existsAsFile())
+            {
+                if (processorRef.loadPresetToProcessor(fc.getResult()))
+                {
+                    // Update will be handled by the main editor
+                }
+            }
+        });
+    };
+    addAndMakeVisible(loadButton);
+
+    // NAM File button
+    namFileButton.setButtonText("NAM");
+    namFileButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    namFileButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    namFileButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
+    namFileButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
+    namFileButton.onClick = [this]()
+    {
+        if (editorRef.getAILockButton().getToggleState())
+        {
+            juce::NativeMessageBox::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "AI Lock Enabled",
+                "AI Lock is enabled. Disable it to manually change the NAM model.");
+            return;
+        }
+
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Select NAM Model", juce::File(), "*.nam");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
+        {
+            if (fc.getResult().existsAsFile())
+            {
+                if (processorRef.loadAmpModel(fc.getResult()))
+                {
+                    // Update will be handled by the main editor
+                }
+            }
+        });
+    };
+    addAndMakeVisible(namFileButton);
+}
+
+void EffectsPanel::resized()
+{
+    auto area = getLocalBounds().reduced(20, 15);
+    
+    // Split into left (Effects) and right (Noise Gate)
+    auto leftPanel = area.removeFromLeft(area.getWidth() / 2);
+    auto rightPanel = area;
+    
+    // ===== LEFT PANEL - EFFECTS =====
+    leftPanel.removeFromRight(15);
+    
+    // Effects header
+    effectsLabel.setBounds(leftPanel.removeFromTop(28));
+    leftPanel.removeFromTop(10);
+    
+    // FIXED: Add an invisible spacer to match the height of the ENABLED button on the right
+    // This creates a 30px tall invisible spacer to align the knob rows
+    auto spacerArea = leftPanel.removeFromTop(30);
+    // Completely invisible - just for spacing
+    
+    // Effects knobs - 2x2 grid
+    const int fxKnobSize = 100;
+    const int fxSpacing = 20;
+    const int labelHeight = 22;
+    
+    int totalFxGridWidth = (fxKnobSize * 2) + fxSpacing;
+    int fxStartX = leftPanel.getX() + (leftPanel.getWidth() - totalFxGridWidth) / 2;
+    
+    // Row 1: Delay Time and Delay Mix
+    int currentY = leftPanel.getY();
+    
+    delayTimeSlider.setBounds(fxStartX, currentY + labelHeight + 5, fxKnobSize, fxKnobSize);
+    delayTimeLabel.setBounds(fxStartX, currentY, fxKnobSize, labelHeight);
+    
+    delayMixSlider.setBounds(fxStartX + fxKnobSize + fxSpacing, currentY + labelHeight + 5, fxKnobSize, fxKnobSize);
+    delayMixLabel.setBounds(fxStartX + fxKnobSize + fxSpacing, currentY, fxKnobSize, labelHeight);
+    
+    leftPanel.removeFromTop(fxKnobSize + labelHeight + 15);
+    
+    // Row 2: Reverb Size and Reverb Wet
+    currentY = leftPanel.getY();
+    
+    reverbSizeSlider.setBounds(fxStartX, currentY + labelHeight + 5, fxKnobSize, fxKnobSize);
+    reverbSizeLabel.setBounds(fxStartX, currentY, fxKnobSize, labelHeight);
+    
+    reverbWetSlider.setBounds(fxStartX + fxKnobSize + fxSpacing, currentY + labelHeight + 5, fxKnobSize, fxKnobSize);
+    reverbWetLabel.setBounds(fxStartX + fxKnobSize + fxSpacing, currentY, fxKnobSize, labelHeight);
+    
+    leftPanel.removeFromTop(fxKnobSize + labelHeight + 20);
+    
+    // Preset buttons at bottom
+    auto buttonRow = leftPanel.removeFromBottom(40);
+    int buttonWidth = 70;
+    namFileButton.setBounds(buttonRow.removeFromLeft(buttonWidth).reduced(2));
+    buttonRow.removeFromLeft(10);
+    saveButton.setBounds(buttonRow.removeFromLeft(buttonWidth).reduced(2));
+    buttonRow.removeFromLeft(10);
+    loadButton.setBounds(buttonRow.removeFromLeft(buttonWidth).reduced(2));
+    
+    // ===== RIGHT PANEL - NOISE GATE =====
+    rightPanel.removeFromLeft(20);
+    
+    // Noise Gate header
+    noiseGateLabel.setBounds(rightPanel.removeFromTop(28));
+    rightPanel.removeFromTop(5);
+    
+    // Enabled button
+    noiseGateEnabledButton.setBounds(rightPanel.removeFromTop(30).removeFromLeft(90).withX(rightPanel.getX()));
+    rightPanel.removeFromTop(15); // This creates the space that we match on the left
+    
+    // Noise Gate knobs - 2x2 grid
+    const int ngKnobSize = 100;
+    const int ngSpacing = 20;
+    
+    int totalNgGridWidth = (ngKnobSize * 2) + ngSpacing;
+    int ngStartX = rightPanel.getX() + (rightPanel.getWidth() - totalNgGridWidth) / 2;
+    
+    // Row 1: Threshold and Attack
+    currentY = rightPanel.getY();
+    
+    noiseGateThresholdSlider.setBounds(ngStartX, currentY + labelHeight + 5, ngKnobSize, ngKnobSize);
+    noiseGateThresholdLabel.setBounds(ngStartX, currentY, ngKnobSize, labelHeight);
+    
+    noiseGateAttackSlider.setBounds(ngStartX + ngKnobSize + ngSpacing, currentY + labelHeight + 5, ngKnobSize, ngKnobSize);
+    noiseGateAttackLabel.setBounds(ngStartX + ngKnobSize + ngSpacing, currentY, ngKnobSize, labelHeight);
+    
+    rightPanel.removeFromTop(ngKnobSize + labelHeight + 15);
+    
+    // Row 2: Release and Range
+    currentY = rightPanel.getY();
+    
+    noiseGateReleaseSlider.setBounds(ngStartX, currentY + labelHeight + 5, ngKnobSize, ngKnobSize);
+    noiseGateReleaseLabel.setBounds(ngStartX, currentY, ngKnobSize, labelHeight);
+    
+    noiseGateRangeSlider.setBounds(ngStartX + ngKnobSize + ngSpacing, currentY + labelHeight + 5, ngKnobSize, ngKnobSize);
+    noiseGateRangeLabel.setBounds(ngStartX + ngKnobSize + ngSpacing, currentY, ngKnobSize, labelHeight);
+}
+
+void EffectsPanel::paint(juce::Graphics& g)
+{
+    // Subtle frame
+    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.03f));
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2), 8.0f, 1.0f);
+    
+    // Draw subtle divider between Effects and Noise Gate
+    auto dividerX = getWidth() / 2;
+    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.05f));
+    g.drawVerticalLine(dividerX, 20, getHeight() - 20);
+}
+
+//==============================================================================
+// LIBRARY PANEL IMPLEMENTATION
+//==============================================================================
+LibraryPanel::LibraryPanel(
+        ToneMatchAudioProcessor& processor, ToneMatchAudioProcessorEditor& editor)
+    : processorRef(processor), editorRef(editor), listBoxModel(*this)
+{
+    setupControls();
+}
+
+void LibraryPanel::setupControls()
+{
+    // Scan models on first creation
+    processorRef.scanModels();
+    
+    // Setup ListBox
+    modelListBox.setModel(&listBoxModel);
+    modelListBox.setRowHeight(30);
+    modelListBox.setColour(juce::ListBox::backgroundColourId, editorRef.getBackgroundColour());
+    modelListBox.setColour(juce::ListBox::outlineColourId, juce::Colour(0xFF1A1A1A));
+    addAndMakeVisible(modelListBox);
+}
+
+void LibraryPanel::resized()
+{
+    auto area = getLocalBounds().reduced(20, 15);
+    modelListBox.setBounds(area);
+}
+
+void LibraryPanel::paint(juce::Graphics& g)
+{
+    // Subtle frame
+    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.03f));
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2), 8.0f, 1.0f);
+}
+
+//==============================================================================
+// MODEL LIST BOX MODEL IMPLEMENTATION
+//==============================================================================
+int LibraryPanel::ModelListBoxModel::getNumRows()
+{
+    // +1 for the bypass option at index 0
+    return static_cast<int>(panelRef.processorRef.getAvailableModels().size()) + 1;
+}
+
+void LibraryPanel::ModelListBoxModel::paintListBoxItem(
+    int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected)
+{
+    auto bounds = juce::Rectangle<int>(0, 0, width, height);
+    
+    // Background
+    if (rowIsSelected)
+    {
+        g.setColour(panelRef.editorRef.getAccentColour().withAlpha(0.3f));
+        g.fillRect(bounds);
+        
+        // Highlight border
+        g.setColour(panelRef.editorRef.getAccentColour());
+        g.drawRect(bounds, 1);
+    }
+    else
+    {
+        g.setColour(panelRef.editorRef.getBackgroundColour());
+        g.fillRect(bounds);
+    }
+    
+    // Text
+    juce::String text;
+    if (rowNumber == 0)
+    {
+        text = "NO AMP (BYPASS)";
+    }
+    else
+    {
+        const auto& models = panelRef.processorRef.getAvailableModels();
+        int modelIndex = rowNumber - 1;
+        if (modelIndex >= 0 && modelIndex < static_cast<int>(models.size()))
+        {
+            text = models[modelIndex].displayName;
+        }
+    }
+    
+    g.setColour(rowIsSelected ? 
+                panelRef.editorRef.getAccentColour() : 
+                panelRef.editorRef.getTextColour());
+    g.setFont(FontManager::getInstance().getSemiBold(13.0f));
+    g.drawText(text, bounds.reduced(10, 0), juce::Justification::centredLeft);
+}
+
+void LibraryPanel::ModelListBoxModel::listBoxItemClicked(int row, const juce::MouseEvent&)
+{
+    // Check AI Lock
+    if (panelRef.editorRef.getAILockButton().getToggleState())
+    {
+        juce::NativeMessageBox::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "AI Lock Enabled",
+            "AI Lock is enabled. Disable it to manually change the NAM model.");
+        return;
+    }
+    
+    if (row == 0)
+    {
+        // Bypass option
+        panelRef.processorRef.bypassAmpModel();
+    }
+    else
+    {
+        // Load model
+        const auto& models = panelRef.processorRef.getAvailableModels();
+        int modelIndex = row - 1;
+        if (modelIndex >= 0 && modelIndex < static_cast<int>(models.size()))
+        {
+            if (panelRef.processorRef.loadAmpModel(models[modelIndex].file))
+            {
+                // Update will be handled by the main editor's updateRigDisplay()
+            }
+        }
+    }
+    
+    // Update rig display on main tab
+    panelRef.editorRef.updateRigDisplay();
+}
+
+//==============================================================================
+// TIMER AND UPDATE METHODS
 //==============================================================================
 void ToneMatchAudioProcessorEditor::timerCallback()
 {
@@ -301,17 +1047,11 @@ void ToneMatchAudioProcessorEditor::timerCallback()
         }
     }
 
-    // Update Auto-Compensation indicator
-    float autoCompDb = processorRef.getAutoCompensationDb();
-    if (std::abs(autoCompDb) < 0.1f)
+    // Update Auto-Compensation indicator (via tonePanel)
+    if (tonePanel != nullptr)
     {
-        autoCompensationLabel.setText("Auto-Boost: 0.0 dB", juce::dontSendNotification);
-    }
-    else
-    {
-        autoCompensationLabel.setText(juce::String("Auto-Boost: ") + 
-            (autoCompDb >= 0.0f ? "+" : "") + 
-            juce::String(autoCompDb, 1) + " dB", juce::dontSendNotification);
+        float autoCompDb = processorRef.getAutoCompensationDb();
+        tonePanel->updateAutoCompensation(autoCompDb);
     }
 
     updateRigDisplay();
@@ -327,552 +1067,27 @@ void ToneMatchAudioProcessorEditor::valueTreePropertyChanged(
             property == juce::Identifier("statusText") ||
             property == juce::Identifier("progress"))
         {
-            // Debug logging for testing
-            juce::String propName = property.toString();
-            int stage = tree.getProperty("progressStage", 0);
-            juce::String status = tree.getProperty("statusText", "Unknown");
-            double progress = tree.getProperty("progress", 0.0);
-            
-            DBG("[Editor] ValueTree changed: " + propName + 
-                " -> Stage: " + juce::String(stage) + 
-                ", Status: " + status + 
-                ", Progress: " + juce::String(progress * 100.0, 1) + "%");
-            
             updateProgressDisplay();
         }
     }
-}
-
-//==============================================================================
-void ToneMatchAudioProcessorEditor::setupSectionA()
-{
-    // Record DI button
-    recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
-    recordButton.setColour(juce::TextButton::textColourOffId, getTextColour());
-    recordButton.setButtonText("RECORD DI (30s)");
-    recordButton.onClick = [this]()
-    {
-        if (processorRef.isCapturingDI())
-        {
-            // Stop recording - feedback will be shown in timerCallback
-            processorRef.stopCapturingDI();
-        }
-        else
-        {
-            // Start recording
-            processorRef.startCapturingDI();
-            recordButton.setButtonText("STOP RECORDING");
-            recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
-            
-            // Hide any previous status messages
-            if (processorRef.getProgressStage() == 0)
-            {
-                statusLabel.setVisible(false);
-            }
-        }
-    };
-    addAndMakeVisible(recordButton);
-
-    // Match Tone button
-    matchToneButton.setColour(juce::TextButton::buttonColourId, getAccentColour());
-    matchToneButton.setColour(juce::TextButton::textColourOffId, getTextColour());
-    matchToneButton.setColour(juce::TextButton::buttonOnColourId, getAccentColour().darker(0.2f));
-    matchToneButton.setColour(juce::TextButton::textColourOnId, getTextColour());
-    matchToneButton.setButtonText("MATCH TONE");
-    
-    matchToneButton.onClick = [this]()
-    {
-        DBG("[Editor] MATCH TONE button clicked");
-        
-        // First select reference file
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Select Reference Audio", juce::File(), "*.wav;*.mp3");
-
-        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().existsAsFile())
-            {
-                DBG("[Editor] Reference file selected: " + fc.getResult().getFullPathName());
-                
-                // Show progress immediately
-                matchToneButton.setVisible(false);
-                progressBar.setVisible(true);
-                statusLabel.setVisible(true);
-                statusLabel.setText("Starting...", juce::dontSendNotification);
-                progressValue = 0.1;
-                repaint();
-                
-                // Trigger the match process
-                processorRef.triggerMatch(fc.getResult());
-            }
-            else
-            {
-                DBG("[Editor] File selection cancelled");
-            }
-        });
-    };
-    addAndMakeVisible(matchToneButton);
-    matchToneButton.setVisible(true);
-
-    // Progress bar
-    progressBar.setColour(juce::ProgressBar::foregroundColourId, getAccentColour());
-    progressBar.setColour(juce::ProgressBar::backgroundColourId, getSecondaryColour());
-    progressBar.setPercentageDisplay(false);
-    addAndMakeVisible(progressBar);
-    progressBar.setVisible(false);
-
-    // Status label
-    statusLabel.setFont(juce::FontOptions(14.0f));
-    statusLabel.setColour(juce::Label::textColourId, getTextColour());
-    statusLabel.setJustificationType(juce::Justification::centred);
-    statusLabel.setText("Ready", juce::dontSendNotification);
-    addAndMakeVisible(statusLabel);
-    statusLabel.setVisible(false);
-    
-    // Make sure status label is always on top for visibility
-    statusLabel.setAlwaysOnTop(true);
-}
-
-void ToneMatchAudioProcessorEditor::setupSectionB()
-{
-    auto& apvts = processorRef.getAPVTS();
-
-    // Rig name label
-    rigNameLabel.setFont(juce::FontOptions(16.0f));
-    rigNameLabel.setColour(juce::Label::textColourId, getTextColour());
-    rigNameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    rigNameLabel.setJustificationType(juce::Justification::centredLeft);
-    rigNameLabel.setText("Rig Name: None", juce::dontSendNotification);
-    addAndMakeVisible(rigNameLabel);
-
-    // AI LOCK button
-    aiLockButton.setButtonText("AI LOCK");
-    aiLockButton.setColour(juce::ToggleButton::textColourId, getTextColour());
-    aiLockButton.setColour(juce::ToggleButton::tickColourId, getAccentColour());
-    aiLockButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xFF666666));
-    aiLockButton.onClick = [this]() { processorRef.syncLockStates(); };
-    aiLockAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        apvts, "aiLock", aiLockButton);
-    addAndMakeVisible(aiLockButton);
-
-    // CAB LOCK button
-    cabLockButton.setButtonText("CAB LOCK");
-    cabLockButton.setColour(juce::ToggleButton::textColourId, getTextColour());
-    cabLockButton.setColour(juce::ToggleButton::tickColourId, getAccentColour());
-    cabLockButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xFF666666));
-    cabLockButton.onClick = [this]() { processorRef.syncLockStates(); };
-    cabLockAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        apvts, "cabLock", cabLockButton);
-    addAndMakeVisible(cabLockButton);
-
-    // Cabinet label
-    cabinetLabel.setFont(juce::FontOptions(16.0f));
-    cabinetLabel.setColour(juce::Label::textColourId, getTextColour());
-    cabinetLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    cabinetLabel.setJustificationType(juce::Justification::centredLeft);
-    cabinetLabel.setText("Cabinet: None", juce::dontSendNotification);
-    addAndMakeVisible(cabinetLabel);
-
-    // EXPERT TWEAKS section label
-    expertTweaksLabel.setText("EXPERT TWEAKS", juce::dontSendNotification);
-    expertTweaksLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    expertTweaksLabel.setColour(juce::Label::textColourId, getAccentColour());
-    expertTweaksLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(expertTweaksLabel);
-
-    // TONE SHAPE slider (Pre-EQ Mid Boost)
-    toneShapeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    toneShapeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    toneShapeSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    toneShapeSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    toneShapeSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    toneShapeSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    toneShapeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    toneShapeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "preEqGainDb", toneShapeSlider);
-    addAndMakeVisible(toneShapeSlider);
-
-    toneShapeLabel.setText("TONE SHAPE", juce::dontSendNotification);
-    toneShapeLabel.setFont(juce::FontOptions(11.0f));
-    toneShapeLabel.setColour(juce::Label::textColourId, getTextColour());
-    toneShapeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    toneShapeLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(toneShapeLabel);
-
-    // GAIN slider (Input Gain)
-    gainSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    gainSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    gainSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    gainSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    gainSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    gainSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    gainSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    gainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "inputGain", gainSlider);
-    addAndMakeVisible(gainSlider);
-
-    gainLabel.setText("GAIN", juce::dontSendNotification);
-    gainLabel.setFont(juce::FontOptions(11.0f));
-    gainLabel.setColour(juce::Label::textColourId, getTextColour());
-    gainLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    gainLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(gainLabel);
-
-    // INPUT TRIM slider
-    inputTrimSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    inputTrimSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    inputTrimSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    inputTrimSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    inputTrimSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    inputTrimSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    inputTrimSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    inputTrimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "inputTrim", inputTrimSlider);
-    addAndMakeVisible(inputTrimSlider);
-
-    inputTrimLabel.setText("INPUT TRIM", juce::dontSendNotification);
-    inputTrimLabel.setFont(juce::FontOptions(11.0f));
-    inputTrimLabel.setColour(juce::Label::textColourId, getTextColour());
-    inputTrimLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    inputTrimLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(inputTrimLabel);
-
-    // AUTO-COMPENSATION indicator
-    autoCompensationLabel.setText("Auto-Boost: 0.0 dB", juce::dontSendNotification);
-    autoCompensationLabel.setFont(juce::FontOptions(10.0f));
-    autoCompensationLabel.setColour(juce::Label::textColourId, getAccentColour());
-    autoCompensationLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    autoCompensationLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(autoCompensationLabel);
-
-    // OVERDRIVE slider (for testing distortion)
-    overdriveSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    overdriveSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    overdriveSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    overdriveSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    overdriveSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    overdriveSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    overdriveSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    overdriveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "overdrive", overdriveSlider);
-    addAndMakeVisible(overdriveSlider);
-
-    overdriveLabel.setText("OVERDRIVE", juce::dontSendNotification);
-    overdriveLabel.setFont(juce::FontOptions(11.0f));
-    overdriveLabel.setColour(juce::Label::textColourId, getTextColour());
-    overdriveLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    overdriveLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(overdriveLabel);
-
-    // HPF slider
-    hpfSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    hpfSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    hpfSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    hpfSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    hpfSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    hpfSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    hpfSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    hpfAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "hpfFreq", hpfSlider);
-    addAndMakeVisible(hpfSlider);
-
-    hpfLabel.setText("HPF", juce::dontSendNotification);
-    hpfLabel.setFont(juce::FontOptions(11.0f));
-    hpfLabel.setColour(juce::Label::textColourId, getTextColour());
-    hpfLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    hpfLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(hpfLabel);
-
-    // LPF slider
-    lpfSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    lpfSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    lpfSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    lpfSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    lpfSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    lpfSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    lpfSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    lpfAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "lpfFreq", lpfSlider);
-    addAndMakeVisible(lpfSlider);
-
-    lpfLabel.setText("LPF", juce::dontSendNotification);
-    lpfLabel.setFont(juce::FontOptions(11.0f));
-    lpfLabel.setColour(juce::Label::textColourId, getTextColour());
-    lpfLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    lpfLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(lpfLabel);
-}
-
-void ToneMatchAudioProcessorEditor::setupSectionC()
-{
-    auto& apvts = processorRef.getAPVTS();
-
-    // Delay Time slider
-    delayTimeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    delayTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    delayTimeSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    delayTimeSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    delayTimeSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    delayTimeSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    delayTimeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    delayTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "delayTimeMs", delayTimeSlider);
-    addAndMakeVisible(delayTimeSlider);
-
-    delayTimeLabel.setText("DELAY TIME", juce::dontSendNotification);
-    delayTimeLabel.setFont(juce::FontOptions(11.0f));
-    delayTimeLabel.setColour(juce::Label::textColourId, getTextColour());
-    delayTimeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    delayTimeLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(delayTimeLabel);
-
-    // Delay Mix slider
-    delayMixSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    delayMixSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    delayMixSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    delayMixSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    delayMixSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    delayMixSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    delayMixSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    delayMixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "delayMix", delayMixSlider);
-    addAndMakeVisible(delayMixSlider);
-
-    delayMixLabel.setText("DELAY MIX", juce::dontSendNotification);
-    delayMixLabel.setFont(juce::FontOptions(11.0f));
-    delayMixLabel.setColour(juce::Label::textColourId, getTextColour());
-    delayMixLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    delayMixLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(delayMixLabel);
-
-    // Reverb Size slider
-    reverbSizeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    reverbSizeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    reverbSizeSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    reverbSizeSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    reverbSizeSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    reverbSizeSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    reverbSizeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    reverbSizeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "reverbRoomSize", reverbSizeSlider);
-    addAndMakeVisible(reverbSizeSlider);
-
-    reverbSizeLabel.setText("REVERB SIZE", juce::dontSendNotification);
-    reverbSizeLabel.setFont(juce::FontOptions(11.0f));
-    reverbSizeLabel.setColour(juce::Label::textColourId, getTextColour());
-    reverbSizeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    reverbSizeLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(reverbSizeLabel);
-
-    // Reverb Wet slider
-    reverbWetSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    reverbWetSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    reverbWetSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    reverbWetSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    reverbWetSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    reverbWetSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    reverbWetSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    reverbWetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "reverbWet", reverbWetSlider);
-    addAndMakeVisible(reverbWetSlider);
-
-    reverbWetLabel.setText("REVERB WET", juce::dontSendNotification);
-    reverbWetLabel.setFont(juce::FontOptions(11.0f));
-    reverbWetLabel.setColour(juce::Label::textColourId, getTextColour());
-    reverbWetLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    reverbWetLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(reverbWetLabel);
-
-    // NOISE GATE section
-    noiseGateLabel.setText("NOISE GATE", juce::dontSendNotification);
-    noiseGateLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    noiseGateLabel.setColour(juce::Label::textColourId, getAccentColour());
-    noiseGateLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(noiseGateLabel);
-
-    // Noise Gate Enabled button
-    noiseGateEnabledButton.setButtonText("ENABLED");
-    noiseGateEnabledButton.setColour(juce::ToggleButton::textColourId, getTextColour());
-    noiseGateEnabledButton.setColour(juce::ToggleButton::tickColourId, getAccentColour());
-    noiseGateEnabledButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xFF666666));
-    noiseGateEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        apvts, "noiseGateEnabled", noiseGateEnabledButton);
-    addAndMakeVisible(noiseGateEnabledButton);
-
-    // Noise Gate Threshold slider
-    noiseGateThresholdSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    noiseGateThresholdSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    noiseGateThresholdSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    noiseGateThresholdSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    noiseGateThresholdSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    noiseGateThresholdSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    noiseGateThresholdSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    noiseGateThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "noiseGateThreshold", noiseGateThresholdSlider);
-    addAndMakeVisible(noiseGateThresholdSlider);
-
-    noiseGateThresholdLabel.setText("THRESHOLD", juce::dontSendNotification);
-    noiseGateThresholdLabel.setFont(juce::FontOptions(11.0f));
-    noiseGateThresholdLabel.setColour(juce::Label::textColourId, getTextColour());
-    noiseGateThresholdLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    noiseGateThresholdLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(noiseGateThresholdLabel);
-
-    // Noise Gate Attack slider
-    noiseGateAttackSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    noiseGateAttackSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    noiseGateAttackSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    noiseGateAttackSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    noiseGateAttackSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    noiseGateAttackSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    noiseGateAttackSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    noiseGateAttackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "noiseGateAttack", noiseGateAttackSlider);
-    addAndMakeVisible(noiseGateAttackSlider);
-
-    noiseGateAttackLabel.setText("ATTACK", juce::dontSendNotification);
-    noiseGateAttackLabel.setFont(juce::FontOptions(11.0f));
-    noiseGateAttackLabel.setColour(juce::Label::textColourId, getTextColour());
-    noiseGateAttackLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    noiseGateAttackLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(noiseGateAttackLabel);
-
-    // Noise Gate Release slider
-    noiseGateReleaseSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    noiseGateReleaseSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    noiseGateReleaseSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    noiseGateReleaseSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    noiseGateReleaseSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    noiseGateReleaseSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    noiseGateReleaseSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    noiseGateReleaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "noiseGateRelease", noiseGateReleaseSlider);
-    addAndMakeVisible(noiseGateReleaseSlider);
-
-    noiseGateReleaseLabel.setText("RELEASE", juce::dontSendNotification);
-    noiseGateReleaseLabel.setFont(juce::FontOptions(11.0f));
-    noiseGateReleaseLabel.setColour(juce::Label::textColourId, getTextColour());
-    noiseGateReleaseLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    noiseGateReleaseLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(noiseGateReleaseLabel);
-
-    // Noise Gate Range slider
-    noiseGateRangeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    noiseGateRangeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
-    noiseGateRangeSlider.setColour(juce::Slider::trackColourId, getAccentColour());
-    noiseGateRangeSlider.setColour(juce::Slider::thumbColourId, getAccentColour());
-    noiseGateRangeSlider.setColour(juce::Slider::textBoxTextColourId, getTextColour());
-    noiseGateRangeSlider.setColour(juce::Slider::textBoxBackgroundColourId, getBackgroundColour());
-    noiseGateRangeSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    noiseGateRangeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "noiseGateRange", noiseGateRangeSlider);
-    addAndMakeVisible(noiseGateRangeSlider);
-
-    noiseGateRangeLabel.setText("RANGE", juce::dontSendNotification);
-    noiseGateRangeLabel.setFont(juce::FontOptions(11.0f));
-    noiseGateRangeLabel.setColour(juce::Label::textColourId, getTextColour());
-    noiseGateRangeLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    noiseGateRangeLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(noiseGateRangeLabel);
-
-    // Save button
-    saveButton.setButtonText("SAVE");
-    saveButton.setColour(juce::TextButton::buttonColourId, getSecondaryColour());
-    saveButton.setColour(juce::TextButton::textColourOffId, getTextColour());
-    saveButton.setColour(juce::TextButton::textColourOnId, getTextColour());
-    saveButton.setColour(juce::TextButton::buttonOnColourId, getSecondaryColour().brighter(0.1f));
-    saveButton.onClick = [this]()
-    {
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Save Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
-
-        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().getFullPathName().isNotEmpty())
-                processorRef.getPresetManager().savePreset(
-                    fc.getResult(), processorRef.getAPVTS(), processorRef);
-        });
-    };
-    addAndMakeVisible(saveButton);
-
-    // Load button
-    loadButton.setButtonText("LOAD");
-    loadButton.setColour(juce::TextButton::buttonColourId, getSecondaryColour());
-    loadButton.setColour(juce::TextButton::textColourOffId, getTextColour());
-    loadButton.setColour(juce::TextButton::textColourOnId, getTextColour());
-    loadButton.setColour(juce::TextButton::buttonOnColourId, getSecondaryColour().brighter(0.1f));
-    loadButton.onClick = [this]()
-    {
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Load Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
-
-        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().existsAsFile())
-            {
-                if (processorRef.loadPresetToProcessor(fc.getResult()))
-                {
-                    updateRigDisplay();
-                }
-            }
-        });
-    };
-    addAndMakeVisible(loadButton);
-
-    // NAM File button (for manual override)
-    namFileButton.setButtonText("NAM");
-    namFileButton.setColour(juce::TextButton::buttonColourId, getSecondaryColour());
-    namFileButton.setColour(juce::TextButton::textColourOffId, getTextColour());
-    namFileButton.setColour(juce::TextButton::textColourOnId, getTextColour());
-    namFileButton.setColour(juce::TextButton::buttonOnColourId, getSecondaryColour().brighter(0.1f));
-    namFileButton.onClick = [this]()
-    {
-        // Check if AI lock is enabled
-        if (aiLockButton.getToggleState())
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "AI Lock Enabled",
-                "AI Lock is enabled. Disable it to manually change the NAM model.");
-            return;
-        }
-
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Select NAM Model", juce::File(), "*.nam");
-
-        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().existsAsFile())
-            {
-                if (processorRef.loadAmpModel(fc.getResult()))
-                {
-                    updateRigDisplay();
-                }
-            }
-        });
-    };
-    addAndMakeVisible(namFileButton);
 }
 
 void ToneMatchAudioProcessorEditor::updateProgressDisplay()
 {
     auto& progressState = processorRef.getProgressState();
     int stage = progressState.getProperty("progressStage", 0);
-    juce::String statusText = progressState.getProperty("statusText", "Ready");
+    juce::String statusText = progressState.getProperty("statusText", "");
     double progress = progressState.getProperty("progress", 0.0);
 
     bool isMatching = (stage > 0 && stage < 3);
     bool isDone = (stage == 3);
 
-    // Show/hide button vs progress bar
     bool showControls = !isMatching;
     recordButton.setVisible(showControls);
     matchToneButton.setVisible(showControls);
     matchToneButton.setEnabled(showControls);
     progressBar.setVisible(isMatching);
     
-    // Show status label when matching, done, or when showing recording feedback
-    // (visibility is also controlled by timerCallback for recording feedback)
     if (isMatching || isDone)
     {
         statusLabel.setVisible(true);
@@ -881,7 +1096,6 @@ void ToneMatchAudioProcessorEditor::updateProgressDisplay()
     if (isMatching)
     {
         progressValue = progress;
-        // Show simple status messages only
         if (statusText == "Grid Search..." || statusText == "Optimizing..." || statusText == "Starting...")
             statusLabel.setText(statusText, juce::dontSendNotification);
         else
@@ -893,7 +1107,6 @@ void ToneMatchAudioProcessorEditor::updateProgressDisplay()
     {
         progressValue = 1.0;
         
-        // Show success message with rig info
         juce::String ampName = processorRef.getLastAmpName();
         juce::String cabName = processorRef.getLastCabName();
         
@@ -917,29 +1130,24 @@ void ToneMatchAudioProcessorEditor::updateProgressDisplay()
         statusLabel.setVisible(true);
         matchToneButton.setEnabled(true);
         
-        // Keep message visible for 5 seconds, then hide
         juce::Timer::callAfterDelay(5000, [this]() {
             if (processorRef.getProgressStage() == 3)
             {
-                // Reset to idle state
-                processorRef.setProgressStage(0, "Ready");
+                processorRef.setProgressStage(0, "");
                 statusLabel.setVisible(false);
             }
         });
     }
     else
     {
-        // Idle or error
         progressValue = 0.0;
         
-        // Show error message if there's an error status
         if (statusText.startsWith("Error:"))
         {
             statusLabel.setVisible(true);
             statusLabel.setText(statusText, juce::dontSendNotification);
             statusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
             
-            // Hide error after 5 seconds
             juce::Timer::callAfterDelay(5000, [this]() {
                 if (processorRef.getProgressStage() == 0)
                 {
@@ -947,7 +1155,6 @@ void ToneMatchAudioProcessorEditor::updateProgressDisplay()
                 }
             });
         }
-        // Otherwise, don't change visibility (let timerCallback handle recording feedback)
         
         matchToneButton.setEnabled(true);
     }
@@ -955,35 +1162,6 @@ void ToneMatchAudioProcessorEditor::updateProgressDisplay()
 
 void ToneMatchAudioProcessorEditor::updateRigDisplay()
 {
-    juce::String ampName = processorRef.getLastAmpName();
-    juce::String cabName = processorRef.getLastCabName();
-    juce::String pedalName = processorRef.getPedalModelName();
-
-    // Build rig name string
-    juce::String rigText = "Rig Name: ";
-    if (pedalName.isNotEmpty() && ampName.isNotEmpty())
-    {
-        rigText += pedalName + " -> " + ampName;
-    }
-    else if (ampName.isNotEmpty())
-    {
-        rigText += ampName;
-    }
-    else
-    {
-        rigText += "None";
-    }
-    rigNameLabel.setText(rigText, juce::dontSendNotification);
-
-    // Cabinet
-    juce::String cabText = "Cabinet: ";
-    if (cabName.isNotEmpty())
-    {
-        cabText += cabName;
-    }
-    else
-    {
-        cabText += "None";
-    }
-    cabinetLabel.setText(cabText, juce::dontSendNotification);
+    if (tonePanel != nullptr)
+        tonePanel->updateRigDisplay();
 }
