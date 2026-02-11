@@ -23,15 +23,15 @@ ToneMatch AI использует трехэтапную архитектуру 
 ## 📸 Интерфейс (Visual Tour)
 
 ### 1. TONE CONTROL
-![Tone Tab](assets/images/tab_tone.png)
+<img src="assets/images/tab_tone.png" width="500" alt="Tone Tab">
 *Здесь происходит магия матчинга и тонкая настройка найденного усилителя (Gain, Overdrive, Bass/Treble).*
 
 ### 2. EFFECTS & NOISE GATE
-![FX Tab](assets/images/tab_fx.png)
+<img src="assets/images/tab_fx.png" width="500" alt="FX Tab">
 *Интеллектуальная настройка пространства: Reverb и Delay, а также профессиональный Noise Gate до усиления.*
 
 ### 3. MODEL LIBRARY
-![Library Tab](assets/images/tab_library.png)
+<img src="assets/images/tab_library.png" width="500" alt="Library Tab">
 *Доступ к 260+ уникальным NAM-моделям (усилители и педали). Выбирай вручную или доверься AI.*
 
 ---

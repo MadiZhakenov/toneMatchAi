@@ -19,12 +19,6 @@ env/
 *.swo
 *~
 
-# User audio files (personal recordings — do not commit)
-*.wav
-*.mp3
-# Exception: IR files in assets are part of the project
-!assets/impulse_responses/**/*.wav
-
 # Training artifacts
 *.pth
 *.npz
