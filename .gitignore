@@ -34,9 +34,6 @@ env/
 optimized_params.json
 optimized_settings.json
 
-# Debug / output images
-*.png
-
 # Logs
 *.log
 ddsp_training_log.txt
