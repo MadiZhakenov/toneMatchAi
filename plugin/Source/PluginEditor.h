@@ -359,6 +359,7 @@ public:
     // Public accessors for child panels
     ToneMatchAudioProcessor& getProcessor() { return processorRef; }
     juce::ToggleButton& getAILockButton() { return aiLockButton; }
+    juce::ToggleButton& getForceHighGainButton() { return forceHighGainButton; }
     
     // Public methods for child panels
     void updateRigDisplay();
@@ -395,6 +396,7 @@ private:
     juce::Label titleLabel;
     juce::TextButton matchToneButton;
     juce::TextButton recordButton;
+    juce::ToggleButton forceHighGainButton;
     double progressValue { 0.0 };
     juce::ProgressBar progressBar;
     juce::Label statusLabel;
@@ -448,6 +450,13 @@ private:
     juce::Label hpfLabel;
     juce::Slider lpfSlider;
     juce::Label lpfLabel;
+    
+    // Reset button
+    juce::TextButton resetToneButton;
+    
+    // Preset buttons (LOAD/SAVE)
+    juce::TextButton loadButton;
+    juce::TextButton saveButton;
 
     // APVTS Attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneShapeAttachment;
@@ -542,10 +551,8 @@ private:
     juce::Label noiseGateReleaseLabel;
     juce::Label noiseGateRangeLabel;
     
-    // Preset buttons
-    juce::TextButton saveButton;
-    juce::TextButton loadButton;
-    juce::TextButton namFileButton;
+    // Reset button
+    juce::TextButton resetFxButton;
 
     // APVTS Attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayTimeAttachment;

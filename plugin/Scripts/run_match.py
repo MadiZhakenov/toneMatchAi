@@ -171,6 +171,8 @@ def main():
                         help="Test duration in seconds (default: 5.0)")
     parser.add_argument("--iterations", type=int, default=50,
                         help="Max optimizer iterations (default: 50)")
+    parser.add_argument("--force_high_gain", action="store_true",
+                        help="Force high-gain mode: skip clean amps, only search high-gain models")
     args = parser.parse_args()
 
     # Validate inputs
@@ -307,7 +309,7 @@ def main():
             nam_folder=nam_folder,
             ir_folder=ir_folder
         )
-        result = optimizer.optimize_universal(di_track, ref_track)
+        result = optimizer.optimize_universal(di_track, ref_track, force_high_gain=args.force_high_gain)
     except Exception as e:
         error_msg = f"[ERROR] Optimization failed: {str(e)}"
         print(error_msg, file=sys.stderr)

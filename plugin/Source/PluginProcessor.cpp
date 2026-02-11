@@ -660,7 +660,7 @@ void ToneMatchAudioProcessor::syncLockStates()
         cabLockEnabled.store(cabLockParam->load() > 0.5f, std::memory_order_release);
 }
 
-void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
+void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile, bool forceHighGain)
 
 {
 
@@ -851,7 +851,7 @@ void ToneMatchAudioProcessor::triggerMatch(const juce::File& refFile)
     DBG("[ToneMatch] Ref file: " + refFile.getFullPathName() + " (" + juce::String(refFile.getSize()) + " bytes)");
     dbgLog("triggerMatch:BRIDGE_START", "Calling pythonBridge.startMatch", "J", 0, 0, 0, diTemp.getSize(), refFile.getSize(), true);
     
-    pythonBridge.startMatch(diTemp, refFile,
+    pythonBridge.startMatch(diTemp, refFile, forceHighGain,
         [this](const MatchResult& result) { 
             dbgLog("triggerMatch:CALLBACK", "Python bridge callback received", "J", 0, 0, 0, result.success ? 1 : 0, 0, true);
             DBG("[ToneMatch] Python bridge callback received");

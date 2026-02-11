@@ -64,6 +64,7 @@ public:
     /** Kick off a match.  Non-blocking — work happens on a background thread. */
     void startMatch(const juce::File& diFile,
                     const juce::File& refFile,
+                    bool forceHighGain,
                     Callback onComplete);
 
     /** Returns true while the background process is running. */
@@ -85,6 +86,7 @@ private:
     //==========================================================================
     juce::File   diFilePending;
     juce::File   refFilePending;
+    bool         forceHighGainPending { false };
     Callback     callbackPending;
 
     juce::String pythonPath  { "python" };

@@ -38,14 +38,16 @@ PythonBridge::~PythonBridge()
 //==============================================================================
 void PythonBridge::startMatch(const juce::File& diFile,
                               const juce::File& refFile,
+                              bool forceHighGain,
                               Callback onComplete)
 {
     if (isThreadRunning())
         return;   // already in progress
 
-    diFilePending   = diFile;
-    refFilePending  = refFile;
-    callbackPending = std::move(onComplete);
+    diFilePending      = diFile;
+    refFilePending     = refFile;
+    forceHighGainPending = forceHighGain;
+    callbackPending    = std::move(onComplete);
 
     startThread(juce::Thread::Priority::normal);
 }
@@ -200,6 +202,8 @@ void PythonBridge::run()
     juce::String durationArg = " --duration 2.0";
     juce::String iterationsArg = " --iterations 30";
     
+    juce::String forceHighGainArg = forceHighGainPending ? " --force_high_gain" : "";
+    
     juce::String cmd;
     if (executableType == "exe")
     {
@@ -208,7 +212,7 @@ void PythonBridge::run()
             + " --di \"" + diFilePending.getFullPathName() + "\""
             + " --ref \"" + refFilePending.getFullPathName() + "\""
             + " --out \"" + outputJson.getFullPathName() + "\""
-            + durationArg + iterationsArg;
+            + durationArg + iterationsArg + forceHighGainArg;
     }
     else
     {
@@ -218,7 +222,7 @@ void PythonBridge::run()
             + " --di \"" + diFilePending.getFullPathName() + "\""
             + " --ref \"" + refFilePending.getFullPathName() + "\""
             + " --out \"" + outputJson.getFullPathName() + "\""
-            + durationArg + iterationsArg;
+            + durationArg + iterationsArg + forceHighGainArg;
     }
 
     DBG("[PythonBridge] Launching: " + cmd);

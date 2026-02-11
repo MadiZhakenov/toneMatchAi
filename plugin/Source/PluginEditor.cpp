@@ -96,12 +96,36 @@ void ToneMatchAudioProcessorEditor::resized()
     // Global controls row
     auto globalRow = area.removeFromTop(50);
     
-    recordButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
-    globalRow.removeFromLeft(10);
+    // Check if we're in loading state (matching)
+    bool isMatching = processorRef.getProgressStage() > 0 && processorRef.getProgressStage() < 3;
     
-    matchToneButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
-    
-    progressBar.setBounds(globalRow.removeFromRight(160).reduced(2, 10));
+    if (isMatching)
+    {
+        // Loading state: center progress bar and status label
+        int centerWidth = 400;
+        int centerX = (globalRow.getWidth() - centerWidth) / 2;
+        auto centerArea = globalRow.withX(centerX).withWidth(centerWidth);
+        
+        // Status label on top
+        statusLabel.setBounds(centerArea.removeFromTop(20).reduced(0, 2));
+        
+        // Progress bar below (thin, 4-6px height)
+        progressBar.setBounds(centerArea.removeFromTop(5).reduced(0, 0));
+    }
+    else
+    {
+        // Normal state: show buttons
+        recordButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
+        globalRow.removeFromLeft(10);
+        
+        matchToneButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
+        globalRow.removeFromLeft(10);
+        
+        forceHighGainButton.setBounds(globalRow.removeFromLeft(160).reduced(2));
+        
+        // Progress bar on the right (hidden in normal state)
+        progressBar.setBounds(globalRow.removeFromRight(160).reduced(2, 10));
+    }
     
     area.removeFromTop(8);
     
@@ -156,8 +180,9 @@ void ToneMatchAudioProcessorEditor::setupGlobalControls()
         }
         else
         {
+            // Start recording (or redo if DI already recorded)
             processorRef.startCapturingDI();
-            recordButton.setButtonText("STOP RECORDING");
+            recordButton.setButtonText("RECORDING...");
             recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
             
             if (processorRef.getProgressStage() == 0)
@@ -191,11 +216,18 @@ void ToneMatchAudioProcessorEditor::setupGlobalControls()
                 progressValue = 0.1;
                 repaint();
                 
-                processorRef.triggerMatch(fc.getResult());
+                processorRef.triggerMatch(fc.getResult(), forceHighGainButton.getToggleState());
             }
         });
     };
     addAndMakeVisible(matchToneButton);
+
+    // Force High Gain toggle button
+    forceHighGainButton.setButtonText("FORCE HIGH GAIN");
+    forceHighGainButton.setColour(juce::ToggleButton::textColourId, getTextColour());
+    forceHighGainButton.setColour(juce::ToggleButton::tickColourId, getAccentColour());
+    forceHighGainButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xFF666666));
+    addAndMakeVisible(forceHighGainButton);
 
     // Progress bar
     progressBar.setColour(juce::ProgressBar::foregroundColourId, getAccentColour());
@@ -359,6 +391,66 @@ void ToneControlPanel::setupControls()
     lpfLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     lpfLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(lpfLabel);
+
+    // Reset Tone button
+    resetToneButton.setButtonText("RESET");
+    resetToneButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    resetToneButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    resetToneButton.onClick = [this, &apvts]()
+    {
+        // Reset tone parameters to defaults
+        apvts.getParameter("inputGain")->setValueNotifyingHost(apvts.getParameterRange("inputGain").convertTo0to1(0.0f));
+        apvts.getParameter("inputTrim")->setValueNotifyingHost(apvts.getParameterRange("inputTrim").convertTo0to1(0.0f));
+        apvts.getParameter("overdrive")->setValueNotifyingHost(apvts.getParameterRange("overdrive").convertTo0to1(0.0f));
+        apvts.getParameter("preEqGainDb")->setValueNotifyingHost(apvts.getParameterRange("preEqGainDb").convertTo0to1(0.0f));
+        apvts.getParameter("hpfFreq")->setValueNotifyingHost(apvts.getParameterRange("hpfFreq").convertTo0to1(70.0f));
+        apvts.getParameter("lpfFreq")->setValueNotifyingHost(apvts.getParameterRange("lpfFreq").convertTo0to1(6000.0f));
+    };
+    addAndMakeVisible(resetToneButton);
+
+    // Save button (preset management)
+    saveButton.setButtonText("SAVE");
+    saveButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    saveButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    saveButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
+    saveButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
+    saveButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Save Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
+
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [this, chooser](const auto& fc)
+        {
+            if (fc.getResult().getFullPathName().isNotEmpty())
+                processorRef.getPresetManager().savePreset(
+                    fc.getResult(), processorRef.getAPVTS(), processorRef);
+        });
+    };
+    addAndMakeVisible(saveButton);
+
+    // Load button (preset management)
+    loadButton.setButtonText("LOAD");
+    loadButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    loadButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    loadButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
+    loadButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
+    loadButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Load Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
+        {
+            if (fc.getResult().existsAsFile())
+            {
+                if (processorRef.loadPresetToProcessor(fc.getResult()))
+                {
+                    // Update will be handled by the main editor
+                }
+            }
+        });
+    };
+    addAndMakeVisible(loadButton);
 }
 
 void ToneControlPanel::resized()
@@ -415,7 +507,19 @@ void ToneControlPanel::resized()
     lpfSlider.setBounds(startX + (knobSize + knobSpacing) * 2, currentY + labelHeight + 5, knobSize, knobSize);
     lpfLabel.setBounds(startX + (knobSize + knobSpacing) * 2, currentY, knobSize, labelHeight);
     
-    // No need to remove more - we're done!
+    // Reset button in top right corner
+    resetToneButton.setBounds(getWidth() - 80, 15, 70, 25);
+    
+    // Preset buttons (LOAD/SAVE) in bottom-left corner of Expert Tweaks section
+    auto bottomArea = area;
+    int buttonWidth = 70;
+    int buttonHeight = 30;
+    int buttonSpacing = 10;
+    int buttonsY = getHeight() - buttonHeight - 15; // 15px from bottom
+    int buttonsX = 20; // 20px from left
+    
+    loadButton.setBounds(buttonsX, buttonsY, buttonWidth, buttonHeight);
+    saveButton.setBounds(buttonsX + buttonWidth + buttonSpacing, buttonsY, buttonWidth, buttonHeight);
 }
 
 
@@ -653,82 +757,19 @@ void EffectsPanel::setupControls()
     noiseGateRangeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(noiseGateRangeLabel);
 
-    // Save button
-    saveButton.setButtonText("SAVE");
-    saveButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
-    saveButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
-    saveButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
-    saveButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
-    saveButton.onClick = [this]()
+    // Reset FX button
+    resetFxButton.setButtonText("RESET");
+    resetFxButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
+    resetFxButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
+    resetFxButton.onClick = [this, &apvts]()
     {
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Save Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
-
-        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().getFullPathName().isNotEmpty())
-                processorRef.getPresetManager().savePreset(
-                    fc.getResult(), processorRef.getAPVTS(), processorRef);
-        });
+        // Reset FX parameters to defaults
+        apvts.getParameter("reverbWet")->setValueNotifyingHost(apvts.getParameterRange("reverbWet").convertTo0to1(0.0f));
+        apvts.getParameter("reverbRoomSize")->setValueNotifyingHost(apvts.getParameterRange("reverbRoomSize").convertTo0to1(0.5f));
+        apvts.getParameter("delayTimeMs")->setValueNotifyingHost(apvts.getParameterRange("delayTimeMs").convertTo0to1(100.0f));
+        apvts.getParameter("delayMix")->setValueNotifyingHost(apvts.getParameterRange("delayMix").convertTo0to1(0.0f));
     };
-    addAndMakeVisible(saveButton);
-
-    // Load button
-    loadButton.setButtonText("LOAD");
-    loadButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
-    loadButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
-    loadButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
-    loadButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
-    loadButton.onClick = [this]()
-    {
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Load Preset", PresetManager::getDefaultPresetDirectory(), "*.json");
-
-        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().existsAsFile())
-            {
-                if (processorRef.loadPresetToProcessor(fc.getResult()))
-                {
-                    // Update will be handled by the main editor
-                }
-            }
-        });
-    };
-    addAndMakeVisible(loadButton);
-
-    // NAM File button
-    namFileButton.setButtonText("NAM");
-    namFileButton.setColour(juce::TextButton::buttonColourId, editorRef.getSecondaryColour());
-    namFileButton.setColour(juce::TextButton::textColourOffId, editorRef.getTextColour());
-    namFileButton.setColour(juce::TextButton::textColourOnId, editorRef.getTextColour());
-    namFileButton.setColour(juce::TextButton::buttonOnColourId, editorRef.getSecondaryColour().brighter(0.1f));
-    namFileButton.onClick = [this]()
-    {
-        if (editorRef.getAILockButton().getToggleState())
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "AI Lock Enabled",
-                "AI Lock is enabled. Disable it to manually change the NAM model.");
-            return;
-        }
-
-        auto chooser = std::make_shared<juce::FileChooser>(
-            "Select NAM Model", juce::File(), "*.nam");
-
-        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const auto& fc)
-        {
-            if (fc.getResult().existsAsFile())
-            {
-                if (processorRef.loadAmpModel(fc.getResult()))
-                {
-                    // Update will be handled by the main editor
-                }
-            }
-        });
-    };
-    addAndMakeVisible(namFileButton);
+    addAndMakeVisible(resetFxButton);
 }
 
 void EffectsPanel::resized()
@@ -781,14 +822,7 @@ void EffectsPanel::resized()
     
     leftPanel.removeFromTop(fxKnobSize + labelHeight + 20);
     
-    // Preset buttons at bottom
-    auto buttonRow = leftPanel.removeFromBottom(40);
-    int buttonWidth = 70;
-    namFileButton.setBounds(buttonRow.removeFromLeft(buttonWidth).reduced(2));
-    buttonRow.removeFromLeft(10);
-    saveButton.setBounds(buttonRow.removeFromLeft(buttonWidth).reduced(2));
-    buttonRow.removeFromLeft(10);
-    loadButton.setBounds(buttonRow.removeFromLeft(buttonWidth).reduced(2));
+    // Preset buttons at bottom (removed - moved to TONE tab)
     
     // ===== RIGHT PANEL - NOISE GATE =====
     rightPanel.removeFromLeft(20);
@@ -827,6 +861,9 @@ void EffectsPanel::resized()
     
     noiseGateRangeSlider.setBounds(ngStartX + ngKnobSize + ngSpacing, currentY + labelHeight + 5, ngKnobSize, ngKnobSize);
     noiseGateRangeLabel.setBounds(ngStartX + ngKnobSize + ngSpacing, currentY, ngKnobSize, labelHeight);
+    
+    // Reset FX button in top right corner
+    resetFxButton.setBounds(getWidth() - 80, 15, 70, 25);
 }
 
 void EffectsPanel::paint(juce::Graphics& g)
@@ -973,77 +1010,78 @@ void ToneMatchAudioProcessorEditor::timerCallback()
     // Auto-stop recording if buffer is full
     static bool wasRecording = false;
     bool isRecording = processorRef.isCapturingDI();
+    int samples = processorRef.getCapturedDISamples();
     
     if (isRecording)
     {
         wasRecording = true;
-        int samples = processorRef.getCapturedDISamples();
         int total = processorRef.getDIBufferSize();
         
         if (samples >= total)
         {
             processorRef.stopCapturingDI();
-            recordButton.setButtonText("RECORD DI (30s)");
-            recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
-            
-            // Show success message
-            double seconds = (double)samples / processorRef.getSampleRate();
-            statusLabel.setVisible(true);
-            statusLabel.setText("Recorded: " + juce::String(seconds, 1) + "s", juce::dontSendNotification);
-            statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
-            
-            // Hide message after 3 seconds
-            juce::Timer::callAfterDelay(3000, [this]() {
-                if (!processorRef.isCapturingDI() && processorRef.getProgressStage() == 0)
-                {
-                    statusLabel.setVisible(false);
-                }
-            });
+            // Will be handled by the else branch below
         }
         else
         {
+            // Recording in progress - show red button
             double seconds = (double)samples / processorRef.getSampleRate();
             recordButton.setButtonText("RECORDING... (" + juce::String(seconds, 1) + "s)");
+            recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
         }
     }
-    else if (wasRecording && !isRecording)
+    else
     {
-        // Recording just stopped (manually)
-        wasRecording = false;
-        int samples = processorRef.getCapturedDISamples();
-        double seconds = (double)samples / processorRef.getSampleRate();
+        // Not recording - determine button state based on captured samples
+        if (wasRecording && !isRecording)
+        {
+            // Recording just stopped (manually or auto-stop)
+            wasRecording = false;
+            double seconds = (double)samples / processorRef.getSampleRate();
+            
+            // Show success message
+            if (samples > 0)
+            {
+                statusLabel.setVisible(true);
+                statusLabel.setText("Recorded: " + juce::String(seconds, 1) + "s", juce::dontSendNotification);
+                statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
+                
+                // Hide message after 3 seconds
+                juce::Timer::callAfterDelay(3000, [this]() {
+                    if (!processorRef.isCapturingDI() && processorRef.getProgressStage() == 0)
+                    {
+                        statusLabel.setVisible(false);
+                    }
+                });
+            }
+            else
+            {
+                statusLabel.setVisible(true);
+                statusLabel.setText("No audio recorded", juce::dontSendNotification);
+                statusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+                
+                // Hide message after 2 seconds
+                juce::Timer::callAfterDelay(2000, [this]() {
+                    if (!processorRef.isCapturingDI() && processorRef.getProgressStage() == 0)
+                    {
+                        statusLabel.setVisible(false);
+                    }
+                });
+            }
+        }
         
-        recordButton.setButtonText("RECORD DI (30s)");
-        recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
-        
-        // Show success message
+        // Update button state: Green if DI recorded, dark red if empty
         if (samples > 0)
         {
-            statusLabel.setVisible(true);
-            statusLabel.setText("Recorded: " + juce::String(seconds, 1) + "s", juce::dontSendNotification);
-            statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
-            
-            // Hide message after 3 seconds
-            juce::Timer::callAfterDelay(3000, [this]() {
-                if (!processorRef.isCapturingDI() && processorRef.getProgressStage() == 0)
-                {
-                    statusLabel.setVisible(false);
-                }
-            });
+            // DI is recorded - show green button
+            recordButton.setButtonText("DI RECORDED (CLICK TO REDO)");
+            recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::forestgreen);
         }
         else
         {
-            statusLabel.setVisible(true);
-            statusLabel.setText("No audio recorded", juce::dontSendNotification);
-            statusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-            
-            // Hide message after 2 seconds
-            juce::Timer::callAfterDelay(2000, [this]() {
-                if (!processorRef.isCapturingDI() && processorRef.getProgressStage() == 0)
-                {
-                    statusLabel.setVisible(false);
-                }
-            });
+            // Buffer is empty - show dark red button
+            recordButton.setButtonText("RECORD DI (30s)");
+            recordButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
         }
     }
 
@@ -1086,11 +1124,18 @@ void ToneMatchAudioProcessorEditor::updateProgressDisplay()
     recordButton.setVisible(showControls);
     matchToneButton.setVisible(showControls);
     matchToneButton.setEnabled(showControls);
+    forceHighGainButton.setVisible(showControls);
     progressBar.setVisible(isMatching);
     
     if (isMatching || isDone)
     {
         statusLabel.setVisible(true);
+    }
+    
+    // Update layout when loading state changes
+    if (isMatching)
+    {
+        resized(); // Recalculate layout to center progress bar and status
     }
 
     if (isMatching)

@@ -56,6 +56,12 @@ if(NOT TARGET NAM)
     if(WIN32)
         target_compile_definitions(NAM PUBLIC NAM_CORE_AVAILABLE=1)
     endif()
+    
+    # Release optimization flags for NAM library
+    target_compile_options(NAM PRIVATE
+        $<$<CONFIG:Release>:$<$<CXX_COMPILER_ID:MSVC>:/O2 /arch:AVX2 /fp:fast>>
+        $<$<CONFIG:Release>:$<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-O3 -march=native -ffast-math>>
+    )
 endif()
 
 # Embed Manrope font files into BinaryData
@@ -126,6 +132,12 @@ target_include_directories(ToneMatchAI PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Source"
     "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/NeuralAmpModelerCore"
     "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/NeuralAmpModelerCore/Dependencies/eigen"
+)
+
+# Release optimization flags for main plugin
+target_compile_options(ToneMatchAI PRIVATE
+    $<$<CONFIG:Release>:$<$<CXX_COMPILER_ID:MSVC>:/O2 /arch:AVX2 /fp:fast>>
+    $<$<CONFIG:Release>:$<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-O3 -march=native -ffast-math>>
 )
 
 # Resources will be loaded from file system at runtime

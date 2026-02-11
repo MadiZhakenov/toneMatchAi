@@ -5,6 +5,12 @@ Finds the best equipment (FX_NAM, AMP_NAM, IR) and optimizes all Post-FX paramet
 
 import os
 import sys
+
+# CRITICAL: Limit thread usage to prevent system lag
+# Must be set BEFORE importing numpy/torch/librosa
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import numpy as np
 
 # Fix encoding for Windows console
@@ -12,6 +18,13 @@ if sys.platform == 'win32':
     import codecs
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
+# Limit PyTorch threads (must be after numpy import but before torch import)
+try:
+    import torch
+    torch.set_num_threads(1)
+except ImportError:
+    pass  # torch not available, skip
 
 from src.core.io import load_audio_file, save_audio_file, AudioTrack
 from src.core.optimizer import ToneOptimizer

@@ -88,7 +88,7 @@ public:
     // Public API for the Editor / Bridge
 
     /** Trigger a tone-match analysis in the background. */
-    void triggerMatch(const juce::File& refFile);
+    void triggerMatch(const juce::File& refFile, bool forceHighGain = false);
 
     /** Access the APVTS (for slider attachments in the editor). */
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }

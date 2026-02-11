@@ -503,7 +503,8 @@ class ToneOptimizer:
         nam_files: List[str], 
         ref_analysis: Dict[str, Any],
         max_amps: int = 25,
-        max_fx: int = 10
+        max_fx: int = 10,
+        force_high_gain: bool = False
     ) -> Tuple[List[str], List[str]]:
         """Classify all NAM models and select relevant ones based on reference analysis.
         
@@ -514,6 +515,7 @@ class ToneOptimizer:
             ref_analysis: Reference audio analysis from _analyze_reference_audio()
             max_amps: Maximum number of amp models to select (default: 25)
             max_fx: Maximum number of FX models to select (default: 10)
+            force_high_gain: If True, exclude clean amps and only search high-gain models
             
         Returns:
             Tuple of (selected_fx_models, selected_amp_models)
@@ -524,6 +526,19 @@ class ToneOptimizer:
             'OD808', 'M77', 'HM2', 'BOSS', 'Maxon', 'MXR', 'Precision-Drive',
             'SparkleDrive', 'ThroneTorcher', 'FX56B', '805', 'Boost', 'Drive',
             'Overdrive', 'Pedal', 'Klon'
+        ]
+        
+        # Clean amp keywords to exclude when force_high_gain=True
+        clean_amp_keywords = [
+            'CLEAN', 'TWIN', 'JAZZ', 'FENDER', 'VOX', 'AC30', 'BLUES', 'CHAMP',
+            'DELUXE', 'SUPER', 'BASSMAN', 'TWEED', 'BLACKFACE', 'SILVERFACE'
+        ]
+        
+        # High-gain amp keywords to include when force_high_gain=True
+        high_gain_keywords = [
+            '5150', '6505', 'MESA', 'MARSHALL', 'DRIVE', 'HIGH GAIN', 'METAL',
+            'DISTORTION', 'CRUNCH', 'FRIEDMAN', 'DIEZEL', 'ENGL', 'PEAVEY',
+            'BOOGIE', 'RECTIFIER', 'MARK', 'JCM', 'JVM', 'SLO', 'SOLDANO'
         ]
         
         # Classify all models
@@ -537,6 +552,18 @@ class ToneOptimizer:
             if is_fx:
                 fx_models.append(nam_path)
             else:
+                # If force_high_gain is enabled, filter out clean amps
+                if force_high_gain:
+                    # Check if it's a clean amp (exclude)
+                    is_clean = any(kw in filename for kw in clean_amp_keywords)
+                    # Check if it's a high-gain amp (include)
+                    is_high_gain = any(kw in filename for kw in high_gain_keywords)
+                    
+                    # Only include if it's explicitly high-gain OR if it doesn't match clean keywords
+                    # This way we include unknown amps but exclude known clean amps
+                    if is_clean and not is_high_gain:
+                        continue  # Skip this clean amp
+                
                 amp_models.append(nam_path)
         
         # Get recommended keywords from reference analysis
@@ -622,7 +649,8 @@ class ToneOptimizer:
         self, 
         di_track: AudioTrack, 
         ref_track: AudioTrack, 
-        top_n: int = 3
+        top_n: int = 3,
+        force_high_gain: bool = False
     ) -> Dict[str, Any]:
         """Find the best rig using Smart Sommelier two-level search.
         
@@ -636,6 +664,7 @@ class ToneOptimizer:
             di_track: Input DI track
             ref_track: Reference track to match
             top_n: Number of top combinations to return
+            force_high_gain: If True, force high-gain mode (skip clean amps)
             
         Returns:
             Dictionary with best rig configurations
@@ -651,19 +680,32 @@ class ToneOptimizer:
         print("="*70)
         
         # ========== STEP 1: Analyze Reference ==========
-        print("\n[Step 1/4] Analyzing reference audio...")
-        
-        # Use first 3 seconds for analysis
-        analysis_samples = int(3.0 * ref_track.sr)
-        ref_audio_for_analysis = ref_track.audio[:min(analysis_samples, len(ref_track.audio))]
-        
-        ref_analysis = self._analyze_reference_audio(ref_audio_for_analysis, ref_track.sr)
-        
-        print(f"  Spectral Centroid: {ref_analysis['spectral_centroid']:.0f} Hz")
-        print(f"  Brightness: {ref_analysis['brightness']:.2f}")
-        print(f"  Aggression Level: {ref_analysis['aggression_level'].upper()}")
-        print(f"  Recommended Amps: {', '.join(ref_analysis['recommended_amp_keywords'][:5])}")
-        print(f"  Recommended FX: {', '.join(ref_analysis['recommended_fx_keywords'][:5])}")
+        if force_high_gain:
+            print("\n[Step 1/4] FORCE HIGH GAIN mode: Skipping spectral analysis")
+            # Create a fake ref_analysis with high-gain settings
+            ref_analysis = {
+                'aggression_level': 'high-gain',
+                'recommended_amp_keywords': ['5150', '6505', 'MESA', 'MARSHALL', 'DRIVE', 'HIGH GAIN', 'METAL', 'DISTORTION', 'CRUNCH'],
+                'recommended_fx_keywords': [],
+                'spectral_centroid': 3000.0,  # High value to indicate high-gain
+                'brightness': 0.8
+            }
+            print(f"  Aggression Level: {ref_analysis['aggression_level'].upper()} (FORCED)")
+            print(f"  Recommended Amps: {', '.join(ref_analysis['recommended_amp_keywords'][:5])}")
+        else:
+            print("\n[Step 1/4] Analyzing reference audio...")
+            
+            # Use first 3 seconds for analysis
+            analysis_samples = int(3.0 * ref_track.sr)
+            ref_audio_for_analysis = ref_track.audio[:min(analysis_samples, len(ref_track.audio))]
+            
+            ref_analysis = self._analyze_reference_audio(ref_audio_for_analysis, ref_track.sr)
+            
+            print(f"  Spectral Centroid: {ref_analysis['spectral_centroid']:.0f} Hz")
+            print(f"  Brightness: {ref_analysis['brightness']:.2f}")
+            print(f"  Aggression Level: {ref_analysis['aggression_level'].upper()}")
+            print(f"  Recommended Amps: {', '.join(ref_analysis['recommended_amp_keywords'][:5])}")
+            print(f"  Recommended FX: {', '.join(ref_analysis['recommended_fx_keywords'][:5])}")
         
         # ========== STEP 2: Classify and Select Models ==========
         print("\n[Step 2/4] Classifying and selecting relevant models...")
@@ -684,7 +726,8 @@ class ToneOptimizer:
             all_nam_files, 
             ref_analysis,
             max_amps=25,  # Test up to 25 amps
-            max_fx=10     # Test up to 10 FX pedals
+            max_fx=10,    # Test up to 10 FX pedals
+            force_high_gain=force_high_gain
         )
         
         # Add "no FX" option
@@ -2351,7 +2394,8 @@ class ToneOptimizer:
         self, 
         di_track: AudioTrack, 
         ref_track: AudioTrack,
-        use_full_search: bool = False
+        use_full_search: bool = False,
+        force_high_gain: bool = False
     ) -> Dict[str, Any]:
         """Universal optimization: Smart Sommelier + Deep Post-FX optimization.
         
@@ -2371,6 +2415,7 @@ class ToneOptimizer:
             di_track: Input DI track to process
             ref_track: Reference track to match
             use_full_search: Ignored (Smart Sommelier always uses intelligent search)
+            force_high_gain: If True, skip spectral analysis and force high-gain mode (exclude clean amps)
         
         Returns:
             Dictionary with complete optimization results including:
@@ -2387,7 +2432,7 @@ class ToneOptimizer:
         
         # Этап 1-2: Smart Sommelier - интеллектуальный поиск оборудования
         # Анализирует референс, выбирает релевантные модели, двухуровневый поиск
-        grid_results = self.find_best_rig_smart(di_track, ref_track, top_n=3)
+        grid_results = self.find_best_rig_smart(di_track, ref_track, top_n=3, force_high_gain=force_high_gain)
         
         if not grid_results.get('best_rig'):
             raise ValueError("Smart Sommelier failed: No valid rig configurations found")
