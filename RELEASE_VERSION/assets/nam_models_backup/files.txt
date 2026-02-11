@@ -1,0 +1,270 @@
+ Volume in drive E is New Volume
+ Volume Serial Number is 83B3-80D0
+
+ Directory of E:\Users\Desktop\toneMatchAi\assets\nam_models
+
+02/05/2026  02:56 PM    <DIR>          .
+02/05/2026  02:56 PM    <DIR>          ..
+02/05/2026  02:56 PM                 0 files.txt
+03/30/2023  04:40 PM           407,251 George B Ceriatone King Kong  chan2 60s br sw2 L.nam
+03/30/2023  04:40 PM           407,795 George B Ceriatone King Kong  KK Ch2 60s solo 80s.nam
+03/30/2023  04:40 PM           407,464 George B Ceriatone King Kong chan2 70s both br sw L.nam
+03/30/2023  04:40 PM           408,223 George B Ceriatone King Kong Channel 1 60s mode.nam
+03/30/2023  04:40 PM           407,350 George B Ceriatone King Kong Channel 2 80s mode both br sw R.nam
+03/30/2023  04:40 PM           407,645 George B Ceriatone King Kong NAM Capture Bogner Blue Chase Tone Secret Pre Deco.nam
+03/30/2023  04:40 PM           407,480 George B Ceriatone King Kong NAM Capture Boosted peace keeper Chase Tone Secret Pre Deco v2.nam
+03/30/2023  04:40 PM           407,197 George B Ceriatone King Kong NAM Capture Broadcast Chase Tone Secret Pre Deco.nam
+03/30/2023  04:40 PM           407,761 George B Ceriatone King Kong NAM Capture Protein Chase Tone Secret Pre Deco .nam
+03/30/2023  04:40 PM           407,531 George B Ceriatone King Kong NAM Capture Turbo Nonna Chase Tone Secret Pre Deco.nam
+03/30/2023  04:40 PM           408,367 George B V4 Countess 300eps.nam
+03/30/2023  04:40 PM           407,250 Helga B 5150 BlockLetter - Boosted.nam
+03/30/2023  04:40 PM           407,066 Helga B 5150 BlockLetter - NoBoost.nam
+03/30/2023  04:40 PM           407,618 Helga B 6505+ Green ch - MXR Drive.nam
+03/30/2023  04:40 PM           407,471 Helga B 6505+ Green ch - NoBoost.nam
+03/30/2023  04:40 PM           421,221 Helga B 6505+ Red ch - MXR Drive V2.nam
+03/30/2023  04:40 PM           407,423 Helga B 6505+ Red ch - MXR Drive.nam
+03/30/2023  04:40 PM           407,516 Helga B 6505+ Red Ch - NoBoost rock.nam
+03/30/2023  04:40 PM           407,335 Helga B 6505+ Red ch - NoBoost.nam
+03/30/2023  04:40 PM           407,255 Helga B 6534+ MXR M77 - Helga Behrens.nam
+03/30/2023  04:40 PM           407,278 Helga B 6534+ MXR M77.nam
+03/30/2023  04:40 PM           407,243 Helga B 6534+ No Boost.nam
+03/30/2023  04:40 PM           407,245 Helga B 6534+ OD808.nam
+03/30/2023  04:40 PM           421,360 Helga B Boss OS-2.nam
+03/30/2023  04:40 PM           421,557 Helga B GCI Jugendstil.nam
+03/30/2023  04:40 PM           407,527 Helga B III Blue - M77 Boost.nam
+03/30/2023  04:40 PM           407,471 Helga B III Blue - NoBoost.nam
+03/30/2023  04:40 PM           406,911 Helga B III Red - 805 Boost.nam
+03/30/2023  04:40 PM           407,202 Helga B III Red - NoBoost.nam
+03/30/2023  04:40 PM           407,273 Helga B III Red - NoBoostBALLS.nam
+03/30/2023  04:40 PM           407,405 Helga B JSX Ultra - M77(FIXED).nam
+03/30/2023  04:40 PM           407,247 Helga B JSX Ultra - M77(GROUND HUM).nam
+03/30/2023  04:40 PM           407,380 Helga B JSX Ultra - No Boost.nam
+03/30/2023  04:40 PM           407,220 Helga B JSX Ultra - OD808.nam
+03/30/2023  04:40 PM           421,376 Helga B JSX-Crunch-M77-ESR0,007.nam
+03/30/2023  04:40 PM           421,102 Helga B JSX-Crunch-NoBoost-0,004.nam
+03/30/2023  04:40 PM           421,327 Helga B JSX-Crunch-OD808-ESR0,007.nam
+03/30/2023  04:40 PM           421,436 Helga B PP Rot Mid Boost.nam
+03/30/2023  04:40 PM           421,443 Helga B PP Rot Mid Scoop.nam
+03/30/2023  04:40 PM           421,248 Helga B PP Wendigo.nam
+03/30/2023  04:40 PM           420,817 Helga B XXX-6L6-M77-ESR0015.nam
+03/30/2023  04:40 PM           420,855 Helga B XXX-6L6-OD808-ESR0015.nam
+03/30/2023  04:40 PM           406,593 Helga B XXX-6L6-PP-Rot-MidBoost-ESR056.nam
+03/30/2023  04:40 PM           420,329 Helga B XXX-6L6-PP-Rot-MidScoop-ESR061.nam
+03/30/2023  04:40 PM           420,849 Helga B XXX-6L6-Wendigo-ESR0,016.nam
+03/30/2023  04:40 PM           407,294 Helga B XXX-KT77-M77.nam
+03/30/2023  04:40 PM           407,387 Helga B XXX-KT77-NoBoost.nam
+03/30/2023  04:40 PM           407,356 Helga B XXX-KT77-OD808.nam
+03/30/2023  04:40 PM           420,908 Jason Z Boss HM2 v1 kinda bass heavy with medium distortion pure everything turned all the way up tone.nam
+03/30/2023  04:40 PM           421,670 Jason Z Boss HM2BTFO heavy distortion meant to be standalone less bass more honk.nam
+03/30/2023  04:40 PM           422,451 Jason Z Boss HM2EQ light distortion with dimed EQ knobs use before an amp.nam
+03/30/2023  04:40 PM           422,210 Jason Z KSR CERES - light blue channel - all noon EQ.nam
+03/30/2023  04:40 PM           422,258 Jason Z KSR CERES - purple channel - all noon EQ.nam
+03/30/2023  04:40 PM           422,112 Jason Z KSR VESTA - light blue channel - all noon EQ.nam
+03/30/2023  04:40 PM           422,261 Jason Z KSR VESTA - purple channel - all noon EQ.nam
+03/30/2023  04:40 PM           422,451 Jason Z Line 6 UBERMETAL INSANE droom metal at its best.nam
+03/30/2023  04:40 PM           421,852 Jason Z Soldano - Super Lead Overdrive pedal nice crunchy rhythm tone.nam
+03/30/2023  04:40 PM           422,287 Jason Z Tech21 dUg DP3X bass preamp pedal all dimed no shift.nam
+03/30/2023  04:40 PM           407,502 Keith B DS1_g6_t5.nam
+03/30/2023  04:40 PM           407,329 Keith B DS1_maxg_t5.nam
+03/30/2023  04:40 PM           408,403 Keith B klone_g6_t6_o5.nam
+03/30/2023  04:40 PM           408,068 Keith B klone_maxG_t6_o5.nam
+03/30/2023  04:40 PM           407,357 Keith B Klone_plus_BB_highGain.nam
+03/30/2023  04:40 PM           407,822 Keith B Klone_plus_BB_lowgain.nam
+03/30/2023  04:40 PM           407,968 Keith B Klone_plus_BB_medGain.nam
+03/30/2023  04:40 PM           408,261 Keith B PlumesClone_maxG_t5_switch1.nam
+03/30/2023  04:40 PM           408,446 Keith B PlumesClone_maxG_t5_switch3.nam
+03/30/2023  04:40 PM           408,153 Luis R driftwood purple nightmare TS engaged.nam
+03/30/2023  04:40 PM           408,167 Mikhail K Sovtek MIG50.nam
+03/30/2023  04:40 PM           407,608 Mikhail K SovtekMIG50 + DOD FX56B.nam
+03/30/2023  04:40 PM           408,183 Mikhail K SovtekMIG50 + Klone.nam
+03/30/2023  04:40 PM           408,221 Mikhail K SovtekMIG50 + SparkleDrive.nam
+03/30/2023  04:40 PM           407,404 Mikhail K SovtekMIG50 + ThroneTorcher.nam
+03/30/2023  04:40 PM            93,161 Peter N DirtyTree DT-33_V7_Feather_ESR-0.0001.nam
+03/30/2023  04:40 PM           200,826 Peter N DirtyTree DT-33_V7_Lite_ESR-0.0001.nam
+03/30/2023  04:40 PM           422,099 Peter N DirtyTree DT-33_V7_Std_ESR-0.0001.nam
+03/30/2023  04:40 PM            93,186 Peter N DirtyTree DT-TC_V7_L3_H7_Feather-ESR-0.0001.nam
+03/30/2023  04:40 PM           200,826 Peter N DirtyTree DT-TC_V7_L3_H7_Lite-ESR-0.0001_(v1).nam
+03/30/2023  04:40 PM           422,107 Peter N DirtyTree DT-TC_V7_L3_H7_Std_ESR-0.0001_(v1).nam
+03/30/2023  04:40 PM            92,920 Peter N HM-2_SWEDE_Feather_ESR-0.0097.nam
+03/30/2023  04:40 PM           200,351 Peter N HM-2_SWEDE_Lite_ESR-0.0057.nam
+03/30/2023  04:40 PM           421,347 Peter N HM-2_SWEDE_Std_ESR-0.0034.nam
+03/30/2023  04:40 PM            93,044 Peter N HM-2_V5_L10_H10_D0_Feather_ESR-0.0015.nam
+03/30/2023  04:40 PM           200,603 Peter N HM-2_V5_L10_H10_D0_lite_ESR-0.0007.nam
+03/30/2023  04:40 PM           421,996 Peter N HM-2_V5_L10_H10_D0_Std_ESR-0.0004.nam
+03/30/2023  04:40 PM            93,008 Peter N HM-2_V5_L10_H8_D2_Feather-ESR-0.0025.nam
+03/30/2023  04:40 PM           200,478 Peter N HM-2_V5_L10_H8_D2_Lite_ESR-0.0014.nam
+03/30/2023  04:40 PM           421,525 Peter N HM-2_V5_L10_H8_D2_Std_ESR-0.0008.nam
+03/30/2023  04:40 PM            93,164 Peter N HM-2_V5_L8_H4_D0_Feather_ESR-0.0025.nam
+03/30/2023  04:40 PM           200,509 Peter N HM-2_V5_L8_H4_D0_Lite_ESR-0.0015.nam
+03/30/2023  04:40 PM           421,872 Peter N HM-2_V5_L8_H4_D0_Std_ESR-0.0015.nam
+03/30/2023  04:40 PM            93,125 Phillipe P BOSS-SD1-Feather-ESR0,001.nam
+03/30/2023  04:40 PM           421,276 Phillipe P Bug1990-Lead-NoDrive-Cab-ESR0,011.nam
+03/30/2023  04:40 PM           421,482 Phillipe P Bug1990-Lead-NoDrive-ESR0,004.nam
+03/30/2023  04:40 PM           421,255 Phillipe P Bug333-Clean-Cab-ESR0,007.nam
+03/30/2023  04:40 PM           421,334 Phillipe P Bug333-Clean-ESR0,002.nam
+03/30/2023  04:40 PM           420,956 Phillipe P Bug333-Crunch-DT-Cab-ESR0,014.nam
+03/30/2023  04:40 PM           421,239 Phillipe P Bug333-Crunch-DT-ESR0,0133.nam
+03/30/2023  04:40 PM           421,216 Phillipe P Bug333-Crunch-NoDrive-Cab-ESR0,005.nam
+03/30/2023  04:40 PM           421,669 Phillipe P Bug333-Crunch-NoDrive-ESR0,002.nam
+03/30/2023  04:40 PM           421,259 Phillipe P Bug333-Lead-NoDrive-Cab-ESR0,007.nam
+03/30/2023  04:40 PM           421,296 Phillipe P Bug333-Lead-NoDrive-ESR0,004.nam
+03/30/2023  04:40 PM           421,648 Phillipe P Bug6262-Crunch-NoDrive-Cab-ESR0,004.nam
+03/30/2023  04:40 PM           421,702 Phillipe P Bugera6262-Crunch-NoDrive-ESR0,002.nam
+03/30/2023  04:40 PM           421,284 Phillipe P Bugera6262-Lead-M77-ESR0,020.nam
+03/30/2023  04:40 PM           421,375 Phillipe P Bugera6262-Lead-M77-Gain1,5-ESR0,017.nam
+03/30/2023  04:40 PM           421,166 Phillipe P Bugera6262-Lead-NoDrive-Cab-ESR0,009.nam
+03/30/2023  04:40 PM           421,445 Phillipe P Bugera6262-Lead-NoDrive-ESR0,009.nam
+03/30/2023  04:40 PM            93,195 Phillipe P Dirty Tree-Feather-ESR0,001.nam
+03/30/2023  04:40 PM           420,384 Phillipe P JVM-CL-GR-NoDrive-Cab-ESR0,007.nam
+03/30/2023  04:40 PM           420,113 Phillipe P JVM-CL-GR-NoDrive-ESR0,005.nam
+03/30/2023  04:40 PM           421,009 Phillipe P JVM-CR-OR-NoDrive-ESR0,017.nam
+03/30/2023  04:40 PM           421,286 Phillipe P JVM-CR-OR-SD1-ESR0,018.nam
+03/30/2023  04:40 PM           421,266 Phillipe P JVM-OD1-GR-M77-ESR0,018.nam
+03/30/2023  04:40 PM           421,141 Phillipe P JVM-OD1-GR-NoDrive-ESR0,015.nam
+03/30/2023  04:40 PM           421,184 Phillipe P JVM-OD2-RD-NoDrive-Cab-ESR0,006.nam
+03/30/2023  04:40 PM           421,499 Phillipe P JVM-OD2-RD-NoDrive-ESR0,003.nam
+03/30/2023  04:40 PM           821,982 Phillipe P LaneyGH100S-Hi-HiNoon-ESR0,024.nam
+03/30/2023  04:40 PM           821,916 Phillipe P LaneyGH100S-Hi-MidGain-ESR0,003.nam
+03/30/2023  04:40 PM           824,865 Phillipe P LaneyGH100S-Lo-AfterBreakUp-ESR0,001.nam
+03/30/2023  04:40 PM           824,253 Phillipe P LaneyGH100S-Lo-CrunchGain-ESR0,024.nam
+03/30/2023  04:40 PM            93,156 Phillipe P Maxon-OD808-Feather-ESR0,001.nam
+03/30/2023  04:40 PM            93,237 Phillipe P MXR-M77-Feather-ESR0,001.nam
+03/30/2023  04:40 PM            93,114 Phillipe P Precision-Drive-Att4-Feather-ESR0,001.nam
+03/30/2023  04:40 PM            93,105 Phillipe P Precision-Drive-Feather-ESR0,001.nam
+03/30/2023  04:40 PM           421,724 Phillipe P VOXAC15-JonAr1.nam
+03/30/2023  04:40 PM           421,464 Phillipe P VOXAC15-JonAr2.nam
+03/30/2023  04:40 PM           421,805 Phillipe P VOXAC15-JonAr3.nam
+03/30/2023  04:40 PM           823,058 Phillipe P VOXAC15-JonAr4.nam
+03/30/2023  04:40 PM           421,130 Phillipe P VOXAC15-TopBoost.nam
+01/30/2026  03:50 AM             1,662 README.md
+03/30/2023  04:40 PM           407,182 Roman A BUGERA_333.nam
+03/30/2023  04:40 PM           407,404 Roman A BUGERA_333_BOOSTED.nam
+03/30/2023  04:40 PM           407,625 Roman A LT_MESA_MARKIV_1.nam
+03/30/2023  04:40 PM           407,393 Roman A YERASOV_MESHUGGAH.nam
+03/30/2023  04:40 PM           407,452 Roman A YERASOV_MESHUGGAH_BOOSTED.nam
+03/30/2023  04:40 PM           421,345 Sascha S DirtyShirleyCrunch_G4_BuxBoostTight.nam
+03/30/2023  04:40 PM           421,429 Sascha S DirtyShirleyMini_Clean_B1_M6_T7_MV10_G4.nam
+03/30/2023  04:40 PM           421,166 Sascha S DirtyShirleyMini_crunch_B4_M5.5_T6_MV6_G4_GS_high.nam
+03/30/2023  04:40 PM           421,326 Sascha S DirtyShirleyMini_crunch_G6.nam
+03/30/2023  04:40 PM           421,312 Sascha S DirtyShirleyMini_crunch_G6_PreQ.nam
+03/30/2023  04:40 PM           421,153 Sascha S DirtyShirleyMini_crunch_G8.nam
+03/30/2023  04:40 PM           420,945 Sascha S DirtyShirleyMini_lowDrive_G6_GainStrucLow.nam
+03/30/2023  04:40 PM           421,295 Sascha S DirtyShirleyMini_lowGain_MV10_G3.5_klonboost.nam
+03/30/2023  04:40 PM            92,981 Sascha S FriedmanDSM_PowerAmpEL84_MV10_feather.nam
+03/30/2023  04:40 PM            93,119 Sascha S FriedmanDSM_PowerAmpEL84_MV6_feather.nam
+03/30/2023  04:40 PM           408,617 Tim R 5152 Clean ish.nam
+03/30/2023  04:40 PM           407,591 Tim R 5152 Crunch + TS9.nam
+03/30/2023  04:40 PM           407,366 Tim R 5152 Crunch No Boost.nam
+03/30/2023  04:40 PM           407,296 Tim R 5152 Lead + TS9.nam
+03/30/2023  04:40 PM           407,221 Tim R 5152 Lead No Boost.nam
+03/30/2023  04:40 PM           408,866 Tim R Fender TwinVerb Norm Bright.nam
+03/30/2023  04:40 PM           408,913 Tim R Fender TwinVerb Vibrato Bright.nam
+03/30/2023  04:40 PM           408,345 Tim R JCM2000 Clean.nam
+03/30/2023  04:40 PM           408,076 Tim R JCM2000 Crunch 805'd.nam
+03/30/2023  04:40 PM           408,242 Tim R JCM2000 Crunch.nam
+03/30/2023  04:40 PM           408,073 Tim R JCM2000 L2 G6 805'd.nam
+03/30/2023  04:40 PM           407,843 Tim R JCM2000 L2 G6.nam
+03/30/2023  04:40 PM           407,883 Tim R JCM2000 L2 G8 805'd.nam
+03/30/2023  04:40 PM           407,779 Tim R JCM2000 L2 G8.nam
+03/30/2023  04:40 PM           408,396 Tim R JCM90050WDualVerbchAG10.nam
+03/30/2023  04:40 PM           408,517 Tim R JCM90050WDualVerbChAG4.nam
+03/30/2023  04:40 PM           408,449 Tim R JCM90050WDualVerbCHAG6.nam
+03/30/2023  04:40 PM           408,543 Tim R JCM90050WDualVerbChAG8.nam
+03/30/2023  04:40 PM           408,189 Tim R JCM90050WDualVerbChBG12.nam
+03/30/2023  04:40 PM           408,069 Tim R JCM90050WDualVerbChBG16.nam
+03/30/2023  04:40 PM           408,005 Tim R JCM90050WDualVerbChBG20.nam
+03/30/2023  04:40 PM           408,130 Tim R JCM90050WDualVerbChBG8.nam
+03/30/2023  04:40 PM           408,662 Tim R Jet City G2.nam
+03/30/2023  04:40 PM           408,387 Tim R Jet City G4.nam
+03/30/2023  04:40 PM           408,489 Tim R Jet City G5.nam
+03/30/2023  04:40 PM           408,093 Tim R Jet City G6.nam
+03/30/2023  04:40 PM           408,064 Tim R Jet City G9 Boosted.nam
+03/30/2023  04:40 PM           408,735 Tim R Magnatone Super 59 MKii - TS9 On Full.nam
+03/30/2023  04:40 PM           408,293 Tim R Magnatone Super 59 MKii Bridged Blend.nam
+03/30/2023  04:40 PM           408,009 Tim R Magnatone Super 59 Mkii Bridged BR Bias.nam
+03/30/2023  04:40 PM           408,243 Tim R Magnatone Super 59 MKii Bridged Driven.nam
+03/30/2023  04:40 PM           408,528 Tim R Magnatone Super 59 Mkii Bridged Kloned.nam
+03/30/2023  04:40 PM           408,690 Tim R Magnatone Super 59 Mkii Ch1 Br.nam
+03/30/2023  04:40 PM           408,385 Tim R Magnatone Super 59 Mkii Ch1 Norm.nam
+03/30/2023  04:40 PM           408,726 Tim R Magnatone Super 59 Mkii Ch2 Br.nam
+03/30/2023  04:40 PM           408,534 Tim R Magnatone Super 59 Mkii Ch2 Norm.nam
+03/30/2023  04:40 PM           407,956 Tim R Magnatone Super 59 Mkii Max'd TS9.nam
+03/30/2023  04:40 PM           407,713 Tim R Magnatone Super 59 Mkii Max'd.nam
+03/30/2023  04:40 PM           408,183 Tim R Magnatone Super 59 Mkii Pushed TS9.nam
+03/30/2023  04:40 PM           408,068 Tim R Magnatone Super 59 Mkii Pushed.nam
+03/30/2023  04:40 PM           408,867 Tim R Seymour Duncan 805.nam
+03/30/2023  04:40 PM           407,081 Tim R Splawn Pro Mod 1st Gear - G12.nam
+03/30/2023  04:40 PM           407,160 Tim R Splawn Pro Mod 2nd Gear - G12.nam
+03/30/2023  04:40 PM           406,979 Tim R Splawn Pro Mod 3rd Gear - G12.nam
+03/30/2023  04:40 PM           407,632 Tim R Splawn Pro Mod G10 Gear 1 OD2.nam
+03/30/2023  04:40 PM           407,704 Tim R Splawn Pro Mod G10 Gear 1.nam
+03/30/2023  04:40 PM           407,629 Tim R Splawn Pro Mod G10 Gear 2 OD2.nam
+03/30/2023  04:40 PM           407,724 Tim R Splawn Pro Mod G10 Gear 2.nam
+03/30/2023  04:40 PM           407,429 Tim R Splawn Pro Mod G10 Gear 3 OD2.nam
+03/30/2023  04:40 PM           407,367 Tim R Splawn Pro Mod G10 Gear 3.nam
+03/30/2023  04:40 PM           407,399 Tim R Splawn Pro Mod G12 Gear 2 OD2 TS9.nam
+03/30/2023  04:40 PM           407,582 Tim R Splawn Pro Mod G12 Gear 3 OD2 TS9.nam
+03/30/2023  04:40 PM           408,803 Tim R TS9 Driven.nam
+03/30/2023  04:40 PM           408,734 Tim R TS9.nam
+03/30/2023  04:40 PM           407,641 Tom C Axe FX 2 Engl Savage.nam
+03/30/2023  04:40 PM           407,963 Tom C Axe FX 2 Orange Rockerverb.nam
+03/30/2023  04:40 PM           406,859 Tom C Engl e530 preamp & 840 power amp with Boss DS1 Overdrive.nam
+03/30/2023  04:40 PM           407,511 Tudor N Ceriatone Molecular 50.nam
+03/30/2023  04:40 PM           200,233 Tudor N Demonfx Dual Boost - Fortin 33 side Knob@5 ESR_0.0017_lite.nam
+03/30/2023  04:40 PM           200,279 Tudor N Demonfx Dual Boost - Xotic EP boost side Knob@5_SW1@down_SW2@down ESR_0.0013_lite.nam
+03/30/2023  04:40 PM           200,255 Tudor N Demonfx Dual Boost - Xotic EP boost side Knob@5_SW1@down_SW2@up ESR_0.0026_lite.nam
+03/30/2023  04:40 PM           200,486 Tudor N Demonfx Dual Boost - Xotic EP boost side Knob@5_SW1@up_SW2@down ESR_0.0016_lite.nam
+03/30/2023  04:40 PM           200,240 Tudor N Demonfx Dual Boost - Xotic EP boost side Knob@5_SW1@up_SW2@up ESR_0.0023_lite.nam
+03/30/2023  04:40 PM           600,153 Tudor N Driftwood Nightmare High Gain   HM2.nam
+03/30/2023  04:40 PM           421,467 Tudor N Driftwood Nightmare Low Gain   TS.nam
+03/30/2023  04:40 PM           421,584 Tudor N Driftwood Nightmare Low Gain.nam
+03/30/2023  04:40 PM           200,139 Tudor N Fortin Grind Mini Knob @ 5 ESR_0.0012_lite.nam
+03/30/2023  04:40 PM           421,030 Tudor N Fortin Grind Mini Knob @ 5 ESR_0.0017_standard.nam
+03/30/2023  04:40 PM           200,516 Tudor N Ibanez Tube Screamer Mini Tone@10_Level@10_Overdrive@0 ESR_0.0006_lite.nam
+03/30/2023  04:40 PM           422,226 Tudor N Ibanez Tube Screamer Mini Tone@10_Level@10_Overdrive@0 ESR_0.0007_standard.nam
+03/30/2023  04:40 PM           200,559 Tudor N Ibanez Tube Screamer Mini Tone@5_Level@5_Overdrive@5 ESR_0.0005_lite.nam
+03/30/2023  04:40 PM           422,519 Tudor N Ibanez Tube Screamer Mini Tone@5_Level@5_Overdrive@5 ESR_0.0008_standard.nam
+03/30/2023  04:40 PM           200,595 Tudor N Ibanez Tube Screamer Mini Tone@8_Level@8_Overdrive@0 ESR_0.0004_lite.nam
+03/30/2023  04:40 PM           422,123 Tudor N Ibanez Tube Screamer Mini Tone@8_Level@8_Overdrive@0 ESR_0.0005_standard.nam
+03/30/2023  04:40 PM           422,497 Tudor N MXR M77 Custom Badass Modified OD Tone@10_Output@10_Gain@0_100HZ@2_Bump@off ESR_0.0008.nam
+03/30/2023  04:40 PM           200,841 Tudor N MXR M77 Custom Badass Modified OD Tone@10_Output@10_Gain@0_100HZ@2_Bump@off ESR_0.0008_lite.nam
+03/30/2023  04:40 PM           200,639 Tudor N MXR M77 Custom Badass Modified OD Tone@10_Output@10_Gain@0_100HZ@2_Bump@on ESR_0.0014_lite.nam
+03/30/2023  04:40 PM           422,377 Tudor N MXR M77 Custom Badass Modified OD Tone@10_Output@10_Gain@0_100HZ@2_Bump@on ESR_0.0016.nam
+03/30/2023  04:40 PM           200,802 Tudor N MXR M77 Custom Badass Modified OD Tone@5_Output@10_Gain@0_100HZ@2_Bump@off ESR_0.0018_lite.nam
+03/30/2023  04:40 PM           422,360 Tudor N MXR M77 Custom Badass Modified OD Tone@5_Output@10_Gain@0_100HZ@2_Bump@off ESR_0.0019_standard.nam
+03/30/2023  04:40 PM           200,567 Tudor N MXR M77 Custom Badass Modified OD Tone@5_Output@10_Gain@0_100HZ@2_Bump@on ESR_0.0026_lite.nam
+03/30/2023  04:40 PM           422,477 Tudor N MXR M77 Custom Badass Modified OD Tone@5_Output@10_Gain@0_100HZ@2_Bump@on ESR_0.0029_standard.nam
+03/30/2023  04:40 PM           200,799 Tudor N MXR M77 Custom Badass Modified OD Tone@6.5_Output@10_Gain@0_100HZ@2_Bump@off ESR_0.0010_lite.nam
+03/30/2023  04:40 PM           422,467 Tudor N MXR M77 Custom Badass Modified OD Tone@6.5_Output@10_Gain@0_100HZ@2_Bump@off ESR_0.0010_standard.nam
+03/30/2023  04:40 PM           200,675 Tudor N MXR M77 Custom Badass Modified OD Tone@6.5_Output@10_Gain@0_100HZ@2_Bump@on ESR_0.0018_lite.nam
+03/30/2023  04:40 PM           422,583 Tudor N MXR M77 Custom Badass Modified OD Tone@6.5_Output@10_Gain@0_100HZ@2_Bump@on ESR_0.0018_standard.nam
+03/30/2023  04:40 PM           421,829 Tudor N MXR M77 Custom Badass Modified OD Tone@6.5_Output@10_Gain@1_100HZ@2_Bump@on ESR_0.0018.nam
+03/30/2023  04:40 PM           200,497 Tudor N MXR M77 Custom Badass Modified OD Tone@6.5_Output@10_Gain@1_100HZ@2_Bump@on ESR_0.0018_lite.nam
+03/30/2023  04:40 PM           200,715 Tudor N Precision Drive (pedalPCB) Vol@6_Drv@0_Brgt@5.5_Atk@4_ESR_0.0004_lite.nam
+03/30/2023  04:40 PM           601,067 Tudor N [Mesa 2x12] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@5_Tre@10_Mas@5_Gain@10_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0146_normalized-6dB.nam
+03/30/2023  04:40 PM         1,259,578 Tudor N [Suhr RL] Input@HI_Dep@4_Gir@2_Pres@5_Bas@6.5_Mid@5_Tre@10_Mas@5_Gain@10_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0097_normalized-6dB.nam
+03/30/2023  04:40 PM         1,489,009 Tudor N [Suhr RL] Input@HI_Dep@5_Gir@5_Pres@5_Bas@10_Mid@10_Tre@10_Mas@10_Gain@10_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0151_normalized-6dB.nam
+03/30/2023  04:40 PM           706,666 Tudor N [Suhr RL] Input@HI_Dep@5_Gir@5_Pres@5_Bas@10_Mid@10_Tre@10_Mas@10_Gain@10_CHAR@mid_ERA@mid_EDG@mid_FEL@up ESR_0.0265_normalized-6dB.nam
+03/30/2023  04:40 PM         1,053,888 Tudor N [Suhr RL] Input@HI_Dep@5_Gir@5_Pres@5_Bas@10_Mid@10_Tre@10_Mas@10_Gain@10_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0119_normalized-6dB.nam
+03/30/2023  04:40 PM           602,230 Tudor N [Suhr RL] Input@HI_Dep@5_Gir@5_Pres@5_Bas@5_Mid@5_Tre@5_Mas@5_Gain@5_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0097_normalized-6dB.nam
+03/30/2023  04:40 PM           603,188 Tudor N [Suhr RL] Input@HI_Dep@5_Gir@5_Pres@5_Bas@5_Mid@5_Tre@5_Mas@5_Gain@5_CHAR@mid_ERA@mid_EDG@mid_FEL@up ESR_0.0048_normalized-6dB.nam
+03/30/2023  04:40 PM           602,400 Tudor N [Suhr RL] Input@HI_Dep@5_Gir@5_Pres@5_Bas@5_Mid@5_Tre@5_Mas@5_Gain@5_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0142_normalized-6dB.nam
+03/30/2023  04:40 PM           651,350 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@4_Tre@10_Mas@5_Gain@10_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0124_normalized-6dB.nam
+03/30/2023  04:40 PM           600,707 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@4_Tre@10_Mas@8_Gain@10_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0161_normalized-6dB.nam
+03/30/2023  04:40 PM           602,347 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@4_Tre@10_Mas@8_Gain@5_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0106_normalized-6dB.nam
+03/30/2023  04:40 PM           602,550 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@4_Tre@10_Mas@8_Gain@5_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0109_normalized-6dB.nam
+03/30/2023  04:40 PM           651,281 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@5_Tre@10_Mas@5_Gain@10_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0115_normalized-6dB.nam
+03/30/2023  04:40 PM         1,378,570 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@5_Tre@10_Mas@8_Gain@10_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0131_normalized-6dB.nam
+03/30/2023  04:40 PM           602,086 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@5_Tre@10_Mas@8_Gain@5_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0104_normalized-6dB.nam
+03/30/2023  04:40 PM           506,975 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8.5_Bas@6.5_Mid@5_Tre@10_Mas@8_Gain@5_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0135_normalized-6dB.nam
+03/30/2023  04:40 PM           601,882 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8_Bas@6.5_Mid@6_Tre@10_Mas@5_Gain@8_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0192_normalized-6dB.nam
+03/30/2023  04:40 PM           708,058 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8_Bas@6.5_Mid@6_Tre@10_Mas@5_Gain@8_CHAR@mid_ERA@mid_EDG@mid_FEL@up ESR_0.0076_normalized-6dB.nam
+03/30/2023  04:40 PM           707,120 Tudor N [Suhr RL] Input@HI_Dep@6_Gir@6.5_Pres@8_Bas@6.5_Mid@6_Tre@10_Mas@5_Gain@8_CHAR@mid_ERA@rgt_EDG@mid_FEL@up ESR_0.0190_normalized-6dB.nam
+03/30/2023  04:40 PM           929,668 Tudor N [Suhr RL] Input@HI_Dep@8_Gir@6.5_Pres@8_Bas@6.5_Mid@4.5_Tre@9_Mas@5_Gain@10_CHAR@mid_ERA@lft_EDG@mid_FEL@up ESR_0.0125_normalized-6dB.nam
+03/30/2023  04:40 PM           601,948 Tudor N [Suhr RL] Poweramp_Dep@10_Gir@10_Pres@10_Mas@10 ESR_0.0135_normalized-6dB.nam
+03/30/2023  04:40 PM           705,983 Tudor N [Suhr RL] Poweramp_Dep@10_Gir@10_Pres@10_Mas@5 ESR_0.0137_normalized-6dB.nam
+03/30/2023  04:40 PM           506,665 Tudor N [Suhr RL] Poweramp_Dep@5_Gir@5_Pres@5_Mas@10 ESR_0.0144_normalized-6dB.nam
+03/30/2023  04:40 PM           602,102 Tudor N [Suhr RL] Poweramp_Dep@5_Gir@5_Pres@5_Mas@5 ESR_0.0114_normalized-6dB.nam
+03/30/2023  04:40 PM           602,041 Tudor N [Suhr RL] Poweramp_Dep@8_Gir@5_Pres@8_Mas@5 ESR_0.0128_normalized-6dB.nam
+             261 File(s)    108,073,845 bytes
+               2 Dir(s)  69,429,669,888 bytes free

@@ -1,118 +1,110 @@
-# ToneMatch AI
+# 🎸 ToneMatch AI VST3
 
-AI-powered guitar tone matching system. Upload a reference track and your DI recording — the system automatically finds the best virtual rig (pedal + amp + cabinet) from 259 NAM models and optimizes post-processing to match the target tone.
+**AI-powered Guitar Tone Cloning Tool.**  
+Плагин, который копирует звук любого гитариста с аудио-референса за 2 минуты.
 
-## How It Works
+---
 
-The system runs a three-stage pipeline:
+## 🚀 Как это работает
 
-1. **Smart Sommelier (Reference Analysis)** — analyzes the reference track to determine genre, gain level, and tonal characteristics, then narrows down the search space.
-2. **Fast Grid Search** — evaluates combinations of FX pedals (NAM), amplifiers (NAM), and cabinets (IR) to find the TOP-3 rigs closest to the reference.
-3. **Deep Post-FX Optimization** — fine-tunes 7 post-processing parameters (Pre-EQ, Reverb, Delay, Final EQ) using a "Sighted" optimizer that minimizes a 4-component error vector (harmonic loss, envelope loss, spectral shape loss, brightness loss).
+ToneMatch AI использует трехэтапную архитектуру для точного копирования гитарного тона:
 
-## Quick Start
+### 1. **Smart Sommelier (Анализ референса)**
+Интеллектуальный анализ целевого аудио определяет стиль (clean/crunch/high-gain), уровень гейна и спектральные характеристики. Это позволяет сузить область поиска и ускорить процесс в 5 раз по сравнению с полным перебором.
 
-### Requirements
+### 2. **Fast Grid Search (Поиск оборудования)**
+Система перебирает комбинации из 260+ NAM-моделей (педали и усилители) и импульсных откликов кабинетов, находя TOP-3 лучших комбинаций, максимально близких к референсу.
 
-- Python 3.9+
-- PyTorch 2.0+
-- See `requirements.txt` for full list
+### 3. **Deep Post-FX Optimization (Применение)**
+Тонкая настройка параметров пост-обработки: Pre-EQ, Reverb, Delay и Final EQ. Используется оптимизатор с минимизацией 4-компонентного вектора ошибки (гармонические потери, огибающая, спектральная форма, яркость).
 
-### Installation
+---
+
+## 📸 Интерфейс (Visual Tour)
+
+### 1. TONE CONTROL
+![Tone Tab](assets/images/tab_tone.png)
+*Здесь происходит магия матчинга и тонкая настройка найденного усилителя (Gain, Overdrive, Bass/Treble).*
+
+### 2. EFFECTS & NOISE GATE
+![FX Tab](assets/images/tab_fx.png)
+*Интеллектуальная настройка пространства: Reverb и Delay, а также профессиональный Noise Gate до усиления.*
+
+### 3. MODEL LIBRARY
+![Library Tab](assets/images/tab_library.png)
+*Доступ к 260+ уникальным NAM-моделям (усилители и педали). Выбирай вручную или доверься AI.*
+
+---
+
+## 🎧 Примеры звучания
+
+- **[My Raw Guitar (DI)]** ([assets/my_guitar.mp3](assets/my_guitar.mp3))
+- **[Target Reference]** ([assets/reference.mp3](assets/reference.mp3))
+- **[ToneMatch Result]** ([assets/final_result.wav](assets/final_result.wav))
+
+---
+
+## 🛠 Установка
+
+### Для VST3 плагина:
+
+1. **Скачайте релиз:**
+   - Распакуйте `ToneMatchAI_vst3_portable.zip`
+   - Следуйте инструкциям в `INSTALL_GUIDE.txt`
+
+2. **Установите плагин:**
+   - Скопируйте папку `ToneMatchAI.vst3` в:
+     - Windows: `C:\Program Files\Common Files\VST3\`
+     - Или: `%USERPROFILE%\Documents\VST3\`
+   - Перезапустите вашу DAW
+
+3. **Настройте Python (для функции Match):**
+   - Установите Python 3.9+ с https://www.python.org/downloads/
+   - Установите зависимости:
+     ```bash
+     pip install -r requirements.txt
+     ```
+
+### Для использования из командной строки:
 
 ```bash
+# Клонируйте репозиторий
 git clone https://github.com/<your-username>/toneMatchAi.git
 cd toneMatchAi
+
+# Установите зависимости
 pip install -r requirements.txt
-```
 
-### Usage
-
-**Option 1: Command Line — Universal Matching (recommended)**
-
-Place your files in the project root:
-- `my_guitar.wav` (or `.mp3`) — your DI recording
-- `reference.wav` (or `.mp3`) — the target tone
-
-```bash
+# Запустите универсальный матчинг
 python run_universal_match.py
 ```
 
-This will search all 259 NAM models for the best rig and optimize post-FX automatically.
+Поместите ваши файлы в корень проекта:
+- `my_guitar.wav` (или `.mp3`) — ваш DI сигнал
+- `reference.wav` (или `.mp3`) — целевой тон
 
-**Option 2: Command Line — Fixed Rig**
+---
 
-```bash
-python run_final_tune.py
-```
+## 📋 Технологии
 
-Uses a fixed equipment chain (DS1 -> 5150 BlockLetter -> BlendOfAll IR) and only optimizes post-FX parameters.
+- **NAM (Neural Amp Modeler)** — нейросетевые модели усилителей и педалей
+- **PyTorch** — дифференцируемая DSP и нейронные сети
+- **Pedalboard** — обработка аудио эффектов в реальном времени
+- **Librosa / SciPy** — спектральный анализ и оптимизация
+- **JUCE** — фреймворк для создания VST3 плагинов
 
-**Option 3: Streamlit Web UI**
+---
 
-```bash
-streamlit run src/app.py
-```
+## 📜 Лицензия
 
-Upload files via the browser, listen to results, and download the processed audio.
+Open Source. Пользуйтесь, улучшайте, делайте рок! 🎸
 
-## Project Structure
+---
 
-```
-toneMatchAi/
-├── src/
-│   ├── app.py                  # Streamlit web interface
-│   ├── core/
-│   │   ├── analysis.py         # Spectral analysis & loss functions
-│   │   ├── data_generator.py   # Training data generation
-│   │   ├── ddsp_processor.py   # Differentiable DSP processing
-│   │   ├── io.py               # Audio I/O (load/save wav/mp3)
-│   │   ├── loss.py             # Loss function components
-│   │   ├── matching.py         # Match EQ filter creation
-│   │   ├── nam_processor.py    # Neural Amp Modeler integration
-│   │   ├── optimizer.py        # Core optimizer (Grid Search + Post-FX)
-│   │   └── processor.py        # Audio processing chain
-│   └── utils/
-│       └── helpers.py          # Utility functions
-├── assets/
-│   ├── nam_models/             # 259 NAM models (pedals & amps)
-│   └── impulse_responses/      # Cabinet IR files
-├── run_universal_match.py      # Entry point: full universal matching
-├── run_final_tune.py           # Entry point: fixed rig + post-FX tuning
-├── requirements.txt            # Python dependencies
-└── .gitignore
-```
+## 🤝 Вклад в проект
 
-## Output
+Мы приветствуем любые улучшения! Создавайте Issues и Pull Requests.
 
-After running, the system produces:
-- A `.wav` file with the matched tone
-- A detailed report with the discovered rig and optimized parameters
+---
 
-## Technology Stack
-
-- **NAM (Neural Amp Modeler)** — neural network guitar amp/pedal emulation
-- **Pedalboard** — real-time audio effects processing (Spotify)
-- **PyTorch** — differentiable DSP and neural network training
-- **Librosa / SciPy** — spectral analysis and optimization
-- **Streamlit** — web UI
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+*Создано с любовью к гитаристам и их тону.* 🎵
