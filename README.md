@@ -38,9 +38,23 @@ ToneMatch AI использует трехэтапную архитектуру 
 
 ## 🎧 Примеры звучания
 
-- **[My Raw Guitar (DI)]** ([assets/my_guitar.mp3](assets/my_guitar.mp3))
-- **[Target Reference]** ([assets/reference.mp3](assets/reference.mp3))
-- **[ToneMatch Result]** ([assets/final_result.wav](assets/final_result.wav))
+### My Raw Guitar (DI)
+<audio controls>
+  <source src="assets/my_guitar.mp3" type="audio/mpeg">
+  Ваш браузер не поддерживает аудио элемент. <a href="assets/my_guitar.mp3">Скачать MP3</a>
+</audio>
+
+### Target Reference
+<audio controls>
+  <source src="assets/reference.mp3" type="audio/mpeg">
+  Ваш браузер не поддерживает аудио элемент. <a href="assets/reference.mp3">Скачать MP3</a>
+</audio>
+
+### ToneMatch Result
+<audio controls>
+  <source src="assets/final_result.wav" type="audio/wav">
+  Ваш браузер не поддерживает аудио элемент. <a href="assets/final_result.wav">Скачать WAV</a>
+</audio>
 
 ---
 
